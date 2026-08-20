@@ -75,6 +75,7 @@ export interface HGState extends StructureSettings {
   moveFurniture: (id: string, x: number, z: number) => void
   rotateFurniture: (id: string, rotationY: number) => void
   nudgeFurniture: (id: string, dx: number, dz: number) => void
+  setScale: (id: string, scale: number) => void
   setParam: (id: string, key: string, value: number | boolean) => void
   resetShape: (id: string) => void
   select: (id: string | null) => void
@@ -135,6 +136,22 @@ function clampedPosition(
   const [w, d] = def ? footprintOf(def, inst.params, inst.scale) : ([0.5, 0.5] as [number, number])
   const box = boxAt(x, z, w, d, inst.rotationY)
   return clampToRoom(box.x, box.z, box.w, box.d, roomW, roomD)
+}
+
+/** Keep an instance's current position inside its room after its geometry changes. */
+function reclampInstance(inst: FurnitureInstance, home: HomeDef): FurnitureInstance {
+  const room = roomById(home, inst.roomId)
+  if (!room) return inst
+  return {
+    ...inst,
+    position: clampedPosition(
+      inst,
+      inst.position[0],
+      inst.position[1],
+      room.rect.w,
+      room.rect.d,
+    ),
+  }
 }
 
 const MIN_OPENING_W = 0.3
@@ -411,7 +428,10 @@ export const useStore = create<HGState>()(
         set({
           furniture: s.furniture.map((f) =>
             f.id === id
-              ? { ...f, modelId: def.id, label: def.name, params: defaultParams(def) }
+              ? reclampInstance(
+                  { ...f, modelId: def.id, label: def.name, params: defaultParams(def) },
+                  s.home,
+                )
               : f,
           ),
           lastSwapId: newModelId,
@@ -458,11 +478,24 @@ export const useStore = create<HGState>()(
         get().moveFurniture(id, f.position[0] + dx, f.position[1] + dz)
       },
 
+      setScale: (id, scale) => {
+        if (!Number.isFinite(scale)) return
+        const s = get()
+        const nextScale = clamp(scale, 0.1, 2)
+        set({
+          furniture: s.furniture.map((f) =>
+            f.id === id ? reclampInstance({ ...f, scale: nextScale }, s.home) : f,
+          ),
+        })
+      },
+
       setParam: (id, key, value) => {
         const s = get()
         set({
           furniture: s.furniture.map((f) =>
-            f.id === id ? { ...f, params: { ...f.params, [key]: value } } : f,
+            f.id === id
+              ? reclampInstance({ ...f, params: { ...f.params, [key]: value } }, s.home)
+              : f,
           ),
         })
       },
@@ -473,7 +506,9 @@ export const useStore = create<HGState>()(
           furniture: s.furniture.map((f) => {
             if (f.id !== id) return f
             const def = getModel(f.modelId)
-            return def ? { ...f, params: defaultParams(def), scale: 1 } : f
+            return def
+              ? reclampInstance({ ...f, params: defaultParams(def), scale: 1 }, s.home)
+              : f
           }),
         })
       },

@@ -29,6 +29,7 @@ function SelectionView({
   isParametric: boolean
 }) {
   const setParam = useStore((s) => s.setParam)
+  const setScale = useStore((s) => s.setScale)
   const resetShape = useStore((s) => s.resetShape)
 
   return (
@@ -80,13 +81,7 @@ function SelectionView({
             max={200}
             step={1}
             display={`${Math.round(inst.scale * 100)}%`}
-            onChange={(v) =>
-              useStore.setState((s) => ({
-                furniture: s.furniture.map((f) =>
-                  f.id === inst.id ? { ...f, scale: v / 100 } : f,
-                ),
-              }))
-            }
+            onChange={(v) => setScale(inst.id, v / 100)}
           />
         </div>
       )}

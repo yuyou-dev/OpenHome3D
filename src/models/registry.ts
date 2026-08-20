@@ -303,7 +303,7 @@ export const BUILTIN_MODELS: ModelDef[] = [
     brand: 'BUILT-IN',
     type: 'DECOR',
     kind: 'parametric',
-    footprint: [0.4, 0.4],
+    footprint: [0.48, 0.4],
     height: 0.75,
     params: [num('Size', 'Size', 0.4, 1.2, 0.7, 0.05)],
   },
@@ -460,8 +460,11 @@ export function footprintOf(
   params?: Record<string, number | boolean>,
   scale = 1,
 ): [number, number] {
-  const w = typeof params?.Width === 'number' ? (params.Width as number) : def.footprint[0]
-  const d = typeof params?.Depth === 'number' ? (params.Depth as number) : def.footprint[1]
+  const size = typeof params?.Size === 'number' ? params.Size : undefined
+  const defaultSize = def.params?.find((param) => param.key === 'Size')?.default
+  const sizeScale = size !== undefined && typeof defaultSize === 'number' ? size / defaultSize : 1
+  const w = typeof params?.Width === 'number' ? params.Width : def.footprint[0] * sizeScale
+  const d = typeof params?.Depth === 'number' ? params.Depth : def.footprint[1] * sizeScale
   return [w * scale, d * scale]
 }
 
