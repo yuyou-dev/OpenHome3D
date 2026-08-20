@@ -328,7 +328,13 @@ for (const vp of VIEWPORTS) {
   const page = await browser.newPage()
   await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 })
   const errors = []
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 200))
+  })
   page.on('pageerror', (e) => errors.push('PAGEERROR: ' + String(e).slice(0, 200)))
+  page.on('response', (r) => {
+    if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`)
+  })
   await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 })
   await page.waitForFunction(() => !!window.__store, { timeout: 15000 })
   await sleep(2500)
@@ -355,6 +361,21 @@ for (const vp of VIEWPORTS) {
   if (errors.length) {
     console.log(`PAGE ERRORS [${vp.label}]:`)
     errors.slice(0, 8).forEach((e) => console.log('   -', e))
+    errors.forEach((detail) => {
+      const kind = detail.startsWith('PAGEERROR:')
+        ? 'PAGEERROR'
+        : detail.startsWith('HTTP ')
+          ? 'HTTP_ERROR'
+          : 'CONSOLE_ERROR'
+      allFindings.push({
+        viewport: vp.label,
+        state: 'runtime',
+        kind,
+        path: '',
+        text: '',
+        detail,
+      })
+    })
   }
   await page.close()
 }
