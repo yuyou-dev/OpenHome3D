@@ -39,7 +39,6 @@ function ZoomProbe() {
  * timeout so users can never get stuck on the veil.
  */
 function ReadyProbe() {
-  const { active, progress } = useProgress()
   const frames = useRef(0)
   const done = useRef(false)
 
@@ -52,6 +51,7 @@ function ReadyProbe() {
   useFrame(() => {
     if (done.current) return
     frames.current += 1
+    const { active, progress } = useProgress.getState()
     if ((!active && progress >= 100 && frames.current >= 5) || frames.current >= 90) finish()
   })
   useEffect(() => {

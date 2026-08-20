@@ -3,7 +3,7 @@ import puppeteer from 'puppeteer-core'
 
 const url = process.env.APP_URL || 'http://127.0.0.1:59683/'
 const out = process.env.SHOT || '/tmp/openhome3d.png'
-const actions = process.env.ACTIONS || '' // e.g. "select-first" | "open-add"
+const actions = process.env.ACTIONS || '' // e.g. "select-first" | "open-add" | "shuffle"
 const chromePath =
   process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
@@ -27,6 +27,19 @@ page.on('response', (r) => {
 await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 })
 await new Promise((r) => setTimeout(r, 4000))
 
+if (actions.includes('shuffle')) {
+  const clicked = await page.evaluate(() => {
+    const btns = [...document.querySelectorAll('button')]
+    const button = btns.find(
+      (b) => b.textContent.includes('换一换') && b.textContent.includes('Shuffle'),
+    )
+    button?.click()
+    return Boolean(button)
+  })
+  if (!clicked) errors.push('ACTION FAILED: 换一换 Shuffle button not found')
+  await new Promise((r) => setTimeout(r, 4000))
+}
+
 if (actions.includes('open-add')) {
   await page.evaluate(() => {
     const btns = [...document.querySelectorAll('button')]
@@ -45,3 +58,4 @@ console.log('SCREENSHOT', out)
 console.log('CONSOLE ERRORS:', errors.length)
 errors.slice(0, 12).forEach((e) => console.log(' -', e))
 await browser.close()
+if (errors.length) process.exitCode = 1
