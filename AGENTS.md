@@ -30,7 +30,7 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 - **轮廓**:硬边件 `drei <Edges>`(lineWidth 1,ink `#2E2A26`,选中 `#2f6bff`);圆滑件回落 `drei <Outlines thickness={1}>`。判定逻辑在 `src/three/EdgedModel.tsx` 的 `edgeModeFor`(GLB 按几何体缓存)与 `src/models/parametric/shared.tsx`(RoundedBox 恒用 Outlines)
 - **灯光/后期**:半球光暖白天光 + 淡紫地面反照(粉紫阴影的来源),平行光微暖;N8AO 淡紫 `color`;画布背景是 styles.css 的奶油径向渐变
 - **壳体**:墙体不写数据,由 `src/gen/walls.ts` 的 `deriveWalls(home, wallHeight)` 推导;cutaway 只注册外墙 normal;配色在 `src/models/palette.ts` 的 SHELL(墙 cream/地板暖木/门扇木色/玻璃浅蓝)
-- **相机**:正交轴测默认;orbit target 跟随 `homeAABB` 中心(y=0.8);`setViewOffset` 提供 -10% 取景下移。**不要**加回 `zoomToCursor`
+- **相机**:正交轴测默认;orbit target 跟随 `homeAABB` 中心(y=0.8),但**用户平移绝不拉回**——AABB 移动(拖/增删房间)只按 delta 平移相机+target(`lastCenter` 机制);视角预设/reset 才重置平移参考。`setViewOffset` 提供 -10% 取景下移。**平移交互**:右键拖动 / Shift+左键拖动 / TopBar 平移模式开关(uiStore `panMode`,会话态;开 = 左键/单指拖动平移,关 = 旋转)。**不要**加回 `zoomToCursor`
 
 ## 资产与尺寸
 

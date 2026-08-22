@@ -18,6 +18,8 @@ interface UIState {
   forcedBrand: Brand | null
   /** Sidebar collapsed (hamburger in TopBar). */
   collapsed: boolean
+  /** Pan mode: drag pans the camera instead of orbiting (TopBar toggle; session-only). */
+  panMode: boolean
   /** Collapsible Section open state, keyed by section title; session-only. */
   sectionOpen: Record<string, boolean>
   toasts: Toast[]
@@ -30,6 +32,7 @@ interface UIState {
   closeUpload: (added: boolean) => void
   consumeForcedBrand: () => Brand | null
   toggleCollapsed: () => void
+  togglePanMode: () => void
   toggleSection: (title: string) => void
   pushToast: (text: string) => void
 }
@@ -42,6 +45,7 @@ export const useUI = create<UIState>()((set, get) => ({
   forcedBrand: null,
   // phones start with the sidebar drawer closed (it overlays the canvas there)
   collapsed: typeof window !== 'undefined' && window.innerWidth <= 720,
+  panMode: false,
   sectionOpen: {},
   toasts: [],
 
@@ -66,6 +70,8 @@ export const useUI = create<UIState>()((set, get) => ({
   },
 
   toggleCollapsed: () => set((s) => ({ collapsed: !s.collapsed })),
+
+  togglePanMode: () => set((s) => ({ panMode: !s.panMode })),
 
   toggleSection: (title) =>
     set((s) => ({ sectionOpen: { ...s.sectionOpen, [title]: !(s.sectionOpen[title] ?? true) } })),

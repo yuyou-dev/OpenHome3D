@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useProgress } from '@react-three/drei'
 import { useStore } from '../state/store'
+import { useUI } from '../ui/uiStore'
 import { homeAABB } from '../state/home'
 import CameraRig, { ORTHO_ZOOM, PERSP_RADIUS } from './CameraRig'
 import Lights from './Lights'
@@ -125,6 +126,7 @@ export default function SceneRoot() {
   const home = useStore((s) => s.home)
   const furniture = useStore((s) => s.furniture)
   const showFurniture = useStore((s) => s.showFurniture)
+  const panMode = useUI((s) => s.panMode)
   useKeyboardShortcuts()
 
   // Guard: a click after an orbit/drag (>5 px travel) is not a deselect.
@@ -143,6 +145,8 @@ export default function SceneRoot() {
       gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
       dpr={[1, 2]}
       flat={false}
+      // grab cursor in pan mode: the primary drag pans instead of orbiting
+      style={{ cursor: panMode ? 'grab' : undefined }}
       // the canvas box animates with the sidebar via CSS; re-allocating the
       // drawing buffer every animation frame makes the toggle stutter, so the
       // buffer resize is debounced and happens once after the transition

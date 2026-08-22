@@ -753,6 +753,13 @@ textarea.input:focus,
   box-shadow: none;
 }
 
+/* toggle-style buttons in the camera bar (e.g. pan mode): candy yellow = on */
+.cam-bar .icon-btn.active,
+.cam-bar .icon-btn.active:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--yellow);
+}
+
 .cam-sep {
   width: 2px;
   height: 16px;

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { requestView, type ViewPreset } from '../three/runtime'
 import { useStore } from '../state/store'
+import { useUI } from './uiStore'
 import { Checkbox, IconButton } from './components'
 
 const S = {
@@ -37,6 +38,18 @@ function ResetIcon() {
     <svg width="14" height="14" viewBox="0 0 16 16" {...S}>
       <path d="M2.5 8.5 L8 3.5 L13.5 8.5" />
       <path d="M4.5 7.5 V12.5 H11.5 V7.5" />
+    </svg>
+  )
+}
+
+function PanIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" {...S}>
+      <path d="M8 1.5 V14.5 M1.5 8 H14.5" />
+      <path d="M8 1.5 L6 3.5 M8 1.5 L10 3.5" />
+      <path d="M8 14.5 L6 12.5 M8 14.5 L10 12.5" />
+      <path d="M1.5 8 L3.5 6 M1.5 8 L3.5 10" />
+      <path d="M14.5 8 L12.5 6 M14.5 8 L12.5 10" />
     </svg>
   )
 }
@@ -118,16 +131,26 @@ const VIEWS: { preset: ViewPreset; title: string; icon: ReactNode }[] = [
 export default function TopBar() {
   const projection = useStore((s) => s.projection)
   const setProjection = useStore((s) => s.setProjection)
+  const panMode = useUI((s) => s.panMode)
+  const togglePanMode = useUI((s) => s.togglePanMode)
   return (
     <div className="topbar">
       <div className="tb-right">
-        {/* one merged camera bar: view presets · projection · AI render */}
+        {/* one merged camera bar: view presets · pan mode · projection */}
         <div className="cam-bar">
           {VIEWS.map((v) => (
             <IconButton key={v.preset} title={v.title} onClick={() => requestView(v.preset)}>
               {v.icon}
             </IconButton>
           ))}
+          <span className="cam-sep" />
+          <IconButton
+            title={panMode ? '平移模式:拖动=平移(点击切回旋转) Pan mode on' : '旋转模式:拖动=旋转(点击切到平移) Orbit mode on'}
+            className={panMode ? 'active' : undefined}
+            onClick={() => togglePanMode()}
+          >
+            <PanIcon />
+          </IconButton>
           <span className="cam-sep" />
           <Checkbox
             label="轴测 ISO"
