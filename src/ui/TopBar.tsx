@@ -54,6 +54,16 @@ function PanIcon() {
   )
 }
 
+function ImageIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" {...S}>
+      <rect x="2.5" y="3.5" width="11" height="9" rx="1" />
+      <circle cx="5.8" cy="6.6" r="1.1" />
+      <path d="M2.5 11 L6 7.8 L8.8 10.4 L10.8 8.6 L13.5 11" />
+    </svg>
+  )
+}
+
 /** 显示 Display popover: the five structure/visibility toggles, straight onto setStructure. */
 function DisplayMenu() {
   const [open, setOpen] = useState(false)
@@ -129,6 +139,7 @@ const VIEWS: { preset: ViewPreset; title: string; icon: ReactNode }[] = [
 ]
 
 export default function TopBar() {
+  const openModal = useUI((s) => s.openModal)
   const projection = useStore((s) => s.projection)
   const setProjection = useStore((s) => s.setProjection)
   const panMode = useUI((s) => s.panMode)
@@ -159,6 +170,15 @@ export default function TopBar() {
           />
           <span className="cam-sep" />
           <DisplayMenu />
+          <span className="cam-sep" />
+          <button
+            type="button"
+            title="AI 渲染 AI render"
+            className="btn btn-ghost cam-btn ai-btn"
+            onClick={() => openModal({ kind: 'ai' })}
+          >
+            <ImageIcon /> AI 渲染
+          </button>
         </div>
       </div>
     </div>

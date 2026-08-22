@@ -2,7 +2,7 @@
 
 本文件记录改代码前必须知道的契约、惯例和坑。详细产品说明见 `README.md`。
 
-OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色 cel-shaded 卡通渲染**、**Neo-Brutalism UI**,**无任何后端/API 服务**(浏览器纯前端)。
+OpenHome3D 是「家居生成器 Cartoon」的开源版:**多房间整宅**、**彩色 cel-shaded 卡通渲染**、**Neo-Brutalism UI**;**无后端/账号/API key**——可选 AI 能力(户型识别+图生图)走用户本机 codex CLI 子进程(仅 dev server,Pages 静态部署不含该端点,入口降级提示)。
 
 ## 构建与验证
 
@@ -11,6 +11,7 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 - 界面冒烟:`npm run smoke:ui`(需 dev server 在线,无头 Chrome 截图并打印控制台错误,有错误退出码 1 可作回归门;`APP_URL`/`SHOT`/`ACTIONS`/`CHROME_PATH` 环境变量控制,`ACTIONS=shuffle` 覆盖换一换,`ACTIONS=openings-bounds` 覆盖调整房间尺寸后的门窗越界回归)
 - UI 溢出审计:`npm run audit:ui`(10 状态 × 2 视口,有 finding 退出码 1,可作回归门;`SHOT_DIR=dir` 逐状态截图)
 - dev server 用随机高端口(`.port` 缓存,`scripts/pick-port.mjs`),不要写死端口
+- AI 环境自检:`npm run doctor`(Node≥20/codex CLI/`codex login status`,`--json` 机器可读);泄密扫描 `npm run scan:public`(CI 里跑,见 `.github/workflows/ci.yml`)
 - **GitHub Pages**:推送到 main 即自动部署(`.github/workflows/pages.yml`,构建用 `npm run build:pages` = `vite build --base=/OpenHome3D/`)。**凡是引用静态资源的 URL 必须走 `import.meta.env.BASE_URL` 前缀**(注册表 GLB 路径、品牌图),禁止手写 `/models/...`、`/brand/...` 绝对路径,否则子路径部署会 404
 
 ## 核心契约(改动会牵连多处,先读再动)
@@ -50,10 +51,23 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 - **侧栏滚动条是故意隐藏的**(`scrollbar-width: none`),不要加回
 - **移动端(≤720px)**:侧栏变覆盖式抽屉(uiStore `collapsed` 默认 true),画布/浮层全宽,顶栏紧凑可横滑,弹窗近全屏;样式集中在 styles.css 末尾的 `@media (max-width: 720px)` 块
 
+## AI 能力(codex CLI 子进程,仅 dev server)
+
+- 两个端点都跑本机 codex CLI(`scripts/ai-api.mjs`),**脚本不读任何凭证**:codex 登录态由 codex 自管(`codex login`,auth.json 只有 codex 自己读写);status 用 `codex login status` 探测(3s 超时,30s 缓存);codex 路径用 `HOME3D_CODEX_BIN` 覆盖
+- **共享单飞槽** `codexCurrent{kind,startedAt,kill}`:understand/render 互斥,busy 响应带 startedAt+kind;两个 `/cancel` 端点是逃生口;client 断连经 `res.on('close')` 杀子进程立即释放槽位
+- **runCodex 的坑**:codex 会拉起 MCP server 孙进程继承 stdio 管道,只杀直接子进程时 `close` 事件等管道会拖几秒甚至不落 → 必须 `detached:true` + 进程组 SIGKILL(`process.kill(-pid)`),被杀/超时的运行用 `exit` 事件收尾(正常完成仍走 `close` 保 stdout 完整)
+- **户型识别 understand**:`codex exec --ephemeral -s read-only --output-schema`(严格 JSON,`-o` 落盘再解析),180s;识别产物经 `src/gen/importPlan.ts` 的 `planJsonToHome` 转 HomeDef(类型映射/几何修复/门窗落位,report 带 applied/dropped 计数);store 动作 `importHome` 整体替换并重排所有房间;原图经 `setPlanImage` 存 IndexedDB,`PlanMinimap` 在整宅 tab 右下角常驻。已知限制:识别 30~70s;无尺寸标注的图比例是估值(±15%),靠改房间尺寸校准
+- **3D 重绘 render**:让 codex 调 image_gen 工具恰好一次,240s 超时(实测 ~80s)。三个硬要求:`-s workspace-write`(read-only 下 image_gen 不注册,silent 失败)、**禁 `--ephemeral`**(rollout 必须落盘才能提取)、prompt 前加 `--`(`-i` 是变参,会把位置参数 prompt 吞成图片路径)。出图在 `$CODEX_HOME/sessions/**/rollout-*<sid>.jsonl` 的内联 base64(v0.140 形状 `image_generation_call.result`;v0.144+ 形状 `image_generation_end.result`);sid 从 stdout/stderr 的 `session id:` 解析,失败回落"最新 mtime rollout";**不信 saved_path 和响应文本里的路径**(幻觉面),提取后删 rollout + `generated_images/<sid>` 恢复清洁
+- **demo 降级**:`/api/ai/*` 只挂在 dev server;线上(Pages)探测失败 → AI 面板/导入行显示"本机运行可用"提示并禁用,不报 404 错误
+- 渲染比例只有 1:1/3:2/2:3 三档(prompt 措辞近似控制);**画布截图带 alpha** 会诱导模型裁切重构 → `AIRender.tsx` 的 `cropToAspect` 先铺 `--paper` 底色再裁剪发送;编辑器的 -10% 取景偏移同理必须在捕获期清掉(`captureFittedScreenshot`/`captureUnbiasedScreenshot` 自动处理)
+- 发给图像模型的 prompt 保持英文(`AIRender.tsx` 的 `DEFAULT_PROMPT` 默认写实摄影方向;`aiPresets.ts` 的 fragment 同)
+- AI 接口只挂在 dev server(`vite preview`/build 无 `/api/ai/*`)
+
 ## 测试脚本的注意事项
 
 - `scripts/smoke-ui.mjs`、`audit-ui-overflow.mjs` 需要本机 Chrome,路径用 `CHROME_PATH` 覆盖(默认 macOS 应用路径)
 - `scripts/fetch-assets.mjs` 会访问网络下载 Kenney/KayKit 资产包(仅维护资产时需要)
+- `scripts/smoke-ui.mjs`、`audit-ui-overflow.mjs` 不起 codex 任务,零额度消耗;`/api/ai/understand` 与 `/api/ai/render` 的端到端都会起真实 codex 调用(render 消耗 ChatGPT 图像额度,80s 量级),写这类脚本前先确认必要
 
 ## 已知限制(多房间,接受)
 
@@ -61,4 +75,4 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 - front/center/free/ring 布局规则不避门(墙贴/跑道类已避);极端小房间门多时可能摆件失败,靠引擎 24 次 attempt 丢弃机制兜底
 - 不允许跨房间拖家具(拖出边界即 clamp 回本房间);换房间 = 删除 + 重新添加
 - 内墙不参与 cutaway;完全被包围的房间靠外墙剖切 + 门洞可见
-- 户型图导入/AI 渲染等 AI 能力随独立 PR 落地(本 PR 序列的收尾);新增/编辑门窗不触发家具重排(门洞避让在下次重排/换一换时生效)
+- 新增/编辑门窗不触发家具重排(门洞避让在下次重排/换一换时生效);AI 能力(户型导入/图生渲染)仅本机 dev server 可用,线上 demo 降级提示

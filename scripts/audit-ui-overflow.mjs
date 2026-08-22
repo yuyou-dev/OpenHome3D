@@ -208,8 +208,49 @@ const STATES = [
     },
   },
   {
-    id: 'S1c-home-tab-restore',
+    // import row queued state (fetch stubbed busy) — the growing 排队中 label
+    // must wrap/shrink instead of spilling past the sidebar
+    id: 'S1c-import-queued',
     async setup(page) {
+      await page.evaluate(() => {
+        window.__origFetch = window.__origFetch ?? window.fetch
+        window.fetch = (url, init) => {
+          if (String(url).includes('/api/ai/understand')) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({ ok: false, code: 'busy', error: 'busy', startedAt: Date.now() - 42000 }),
+                { headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+          if (String(url).includes('/api/ai/status')) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({ ok: true, codex: { available: true }, busy: true, busySince: Date.now() - 42000, busyKind: 'understand', model: 'codex image_gen' }),
+                { headers: { 'Content-Type': 'application/json' } },
+              ),
+            )
+          }
+          return window.__origFetch(url, init)
+        }
+        // trigger a recognition: feed a 1px png through the file input's onFile
+        const px = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        const file = new File([Uint8Array.from(atob(px), (c) => c.charCodeAt(0))], 'plan.png', { type: 'image/png' })
+        const input = document.querySelector('.sidebar input[type=file][accept*="image"]')
+        const dt = new DataTransfer()
+        dt.items.add(file)
+        input.files = dt.files
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      await sleep(1200)
+    },
+  },
+  {
+    id: 'S1d-home-tab-restore',
+    async setup(page) {
+      await page.evaluate(() => {
+        if (window.__origFetch) window.fetch = window.__origFetch
+      })
       await evalStore(page, () => {
         const s = window.__store.getState()
         // restore the original single-room home so later states keep their baseline
@@ -303,6 +344,17 @@ const STATES = [
       })
       await page.waitForSelector('.display-pop', { timeout: 5000 })
       await sleep(300)
+    },
+  },
+  {
+    id: 'S8-ai-modal',
+    async setup(page) {
+      await closeAnyModal(page)
+      await page.evaluate(() => {
+        document.querySelector('.ai-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      await page.waitForSelector('.ai-panel', { timeout: 8000 })
+      await sleep(1200)
     },
   },
   {
