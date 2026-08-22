@@ -1,0 +1,212 @@
+{
+  "overall": {
+    "widthM": 16.4,
+    "depthM": 13.9
+  },
+  "rooms": [
+    {
+      "name": "MASTER SUITE",
+      "type": "bedroom",
+      "x": 9.9,
+      "y": 0,
+      "w": 3.7,
+      "d": 4.9
+    },
+    {
+      "name": "MASTER BATH",
+      "type": "bathroom",
+      "x": 13.6,
+      "y": 0.1,
+      "w": 2.5,
+      "d": 3
+    },
+    {
+      "name": "WALK-IN CLOSET",
+      "type": "other",
+      "x": 13.6,
+      "y": 3.1,
+      "w": 2.4,
+      "d": 1.8
+    },
+    {
+      "name": "BEDROOM/STUDY",
+      "type": "bedroom",
+      "x": 0,
+      "y": 1.2,
+      "w": 3.7,
+      "d": 4.2
+    },
+    {
+      "name": "DINING AREA",
+      "type": "dining",
+      "x": 3.7,
+      "y": 1.2,
+      "w": 2.9,
+      "d": 2.7
+    },
+    {
+      "name": "KITCHEN",
+      "type": "kitchen",
+      "x": 6.8,
+      "y": 2.1,
+      "w": 3.1,
+      "d": 3.8
+    },
+    {
+      "name": "LAUNDRY",
+      "type": "other",
+      "x": 12,
+      "y": 5,
+      "w": 4.3,
+      "d": 2.3
+    },
+    {
+      "name": "MECH",
+      "type": "other",
+      "x": 9.2,
+      "y": 6.1,
+      "w": 2.2,
+      "d": 1.9
+    },
+    {
+      "name": "GREAT ROOM",
+      "type": "living",
+      "x": 3.7,
+      "y": 4.8,
+      "w": 5.3,
+      "d": 4.9
+    },
+    {
+      "name": "BEDROOM",
+      "type": "bedroom",
+      "x": 0,
+      "y": 7.8,
+      "w": 3.7,
+      "d": 3.8
+    },
+    {
+      "name": "VERANDA",
+      "type": "other",
+      "x": 3.7,
+      "y": 9.7,
+      "w": 5.6,
+      "d": 2
+    },
+    {
+      "name": "DOUBLE GARAGE",
+      "type": "garage",
+      "x": 9.9,
+      "y": 7.4,
+      "w": 6.4,
+      "d": 6.4
+    }
+  ],
+  "doors": [
+    {
+      "between": [
+        "BEDROOM/STUDY",
+        "GREAT ROOM"
+      ]
+    },
+    {
+      "between": [
+        "BEDROOM",
+        "GREAT ROOM"
+      ]
+    },
+    {
+      "between": [
+        "GREAT ROOM",
+        "VERANDA"
+      ]
+    },
+    {
+      "between": [
+        "GREAT ROOM",
+        "MASTER SUITE"
+      ]
+    },
+    {
+      "between": [
+        "MASTER SUITE",
+        "MASTER BATH"
+      ]
+    },
+    {
+      "between": [
+        "MASTER BATH",
+        "WALK-IN CLOSET"
+      ]
+    },
+    {
+      "between": [
+        "GREAT ROOM",
+        "MECH"
+      ]
+    },
+    {
+      "between": [
+        "MECH",
+        "LAUNDRY"
+      ]
+    },
+    {
+      "between": [
+        "LAUNDRY",
+        "DOUBLE GARAGE"
+      ]
+    },
+    {
+      "between": [
+        "LAUNDRY",
+        "exterior"
+      ]
+    }
+  ],
+  "windows": [
+    {
+      "room": "BEDROOM/STUDY",
+      "wall": "n"
+    },
+    {
+      "room": "DINING AREA",
+      "wall": "n"
+    },
+    {
+      "room": "KITCHEN",
+      "wall": "n"
+    },
+    {
+      "room": "MASTER SUITE",
+      "wall": "n"
+    },
+    {
+      "room": "MASTER BATH",
+      "wall": "n"
+    },
+    {
+      "room": "MASTER BATH",
+      "wall": "e"
+    },
+    {
+      "room": "WALK-IN CLOSET",
+      "wall": "e"
+    },
+    {
+      "room": "LAUNDRY",
+      "wall": "e"
+    },
+    {
+      "room": "GREAT ROOM",
+      "wall": "s"
+    },
+    {
+      "room": "BEDROOM",
+      "wall": "s"
+    },
+    {
+      "room": "DOUBLE GARAGE",
+      "wall": "s"
+    }
+  ]
+}

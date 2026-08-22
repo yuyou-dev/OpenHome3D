@@ -2,11 +2,16 @@
  * Wall derivation: turns a HomeDef (rooms + openings) into renderable wall
  * segments. Walls are never stored — they are derived from room adjacency:
  *
- * - A side shared with another room (sharedSpan) becomes ONE interior wall,
- *   rendered by the room with the lexicographically smaller id, thickness
- *   centered on the shared boundary.
+ * - A side shared with another room (sharedSpan) becomes interior wall
+ *   segments rendered by the room with the lexicographically smaller id,
+ *   thickness centered on the shared boundary. Openings with
+ *   `fullHeight: true` (kind 'open', 打通) subtract their span from the
+ *   shared interval first, so the remaining wall is split into sub-segments
+ *   (zero sub-segments = fully opened up).
  * - The unshared remainder of a side becomes exterior wall: inner face flush
  *   with the room edge, bulging outward by WALL_T (the legacy Room.tsx look).
+ *   A fullHeight opening to the exterior (b 'exterior', 阳台开口) replaces
+ *   the full-height wall across its span with a PARAPET_H railing wall.
  * - n/s exterior segments are extended by WALL_T at ends that coincide with a
  *   corner of homeAABB (matches the legacy corner caps: n/s walls span
  *   w + 2·WALL_T; e/w wall ends are capped by those extensions).
@@ -26,6 +31,8 @@ import {
 } from '../state/home'
 
 export const WALL_T = 0.12
+/** Railing-height half wall rendered across an exterior fullHeight opening (balcony edge). */
+export const PARAPET_H = 1.05
 
 const EPS = 1e-6
 const SIDES: Side[] = ['n', 's', 'e', 'w']
@@ -129,29 +136,56 @@ export function deriveWalls(home: HomeDef, wallHeight: number): WallSegment[] {
       }
       shared.sort((a, b) => a.from - b.from)
 
-      // interior walls: one per shared interval, rendered by the smaller id
+      // interior walls: shared interval minus fullHeight gaps (打通), one
+      // segment per remaining sub-span, rendered by the smaller id
       for (const sh of shared) {
         if (room.id > sh.other.id) continue
         const segStart = startCoord(room, side) + sh.from
-        const doorways: WallDoorway[] = []
+        const segLen = sh.to - sh.from
+        const gaps: [number, number][] = [] // segment-local intervals with no wall
+        const allDoorways: WallDoorway[] = [] // segment-local u (from segStart)
         for (const o of home.openings) {
           if (o.kind === 'window') continue // defensively ignored on interior walls
+          let conv: { u: number; w: number } | null = null
           if (o.a === room.id && o.side === side && o.b === sh.other.id) {
-            doorways.push({ ...toOpening(o, room, side, segStart), kind: o.kind })
+            conv = toOpening(o, room, side, segStart)
           } else if (o.a === sh.other.id && o.side === OPPOSITE[side] && o.b === room.id) {
-            doorways.push({ ...toOpening(o, sh.other, OPPOSITE[side], segStart), kind: o.kind })
+            conv = toOpening(o, sh.other, OPPOSITE[side], segStart)
+          }
+          if (!conv) continue
+          if (o.kind === 'open' && o.fullHeight) {
+            gaps.push([conv.u - conv.w / 2, conv.u + conv.w / 2])
+          } else {
+            allDoorways.push({ ...conv, kind: o.kind })
           }
         }
-        segments.push({
-          key: `int:${room.id}:${sh.other.id}`,
-          kind: 'int',
-          axis,
-          from: pointAt(room, side, sh.from),
-          to: pointAt(room, side, sh.to),
-          height: wallHeight,
-          doorways,
-          windows: [],
-          roomId: room.id,
+        // subtract gap intervals from the shared span (same cursor sweep as extSpans)
+        gaps.sort((a, b) => a[0] - b[0])
+        const subSpans: [number, number][] = []
+        let intCursor = 0
+        for (const [gLo, gHi] of gaps) {
+          const lo = Math.min(segLen, Math.max(0, gLo))
+          const hi = Math.min(segLen, Math.max(0, gHi))
+          if (lo - intCursor > EPS) subSpans.push([intCursor, lo])
+          intCursor = Math.max(intCursor, hi)
+        }
+        if (segLen - intCursor > EPS) subSpans.push([intCursor, segLen])
+        subSpans.forEach(([lo, hi], i) => {
+          segments.push({
+            key: `int:${room.id}:${sh.other.id}:${i}`,
+            kind: 'int',
+            axis,
+            from: pointAt(room, side, sh.from + lo),
+            to: pointAt(room, side, sh.from + hi),
+            height: wallHeight,
+            // doorways whose center survived in this sub-span, re-based to it;
+            // one falling inside a gap is defensively dropped
+            doorways: allDoorways
+              .filter((d) => d.u >= lo - EPS && d.u <= hi + EPS)
+              .map((d) => ({ ...d, u: d.u - lo })),
+            windows: [],
+            roomId: room.id,
+          })
         })
       }
 
@@ -165,43 +199,68 @@ export function deriveWalls(home: HomeDef, wallHeight: number): WallSegment[] {
       if (span.length - cursor > EPS) extSpans.push([cursor, span.length])
 
       const openings = openingsOn(room, side, home.openings).filter((o) => o.b === 'exterior')
-      extSpans.forEach(([lo, hi], i) => {
-        // corner caps: extend n/s segments at ends that coincide with an
-        // aabb corner; e/w ends are capped by those extensions (legacy look)
-        let elo = lo
-        let ehi = hi
-        if (axis === 'x') {
-          const zLine = pointAt(room, side, lo)[1]
-          const onAabbZ =
-            Math.abs(zLine - aabb.minZ) < EPS || Math.abs(zLine - aabb.maxZ) < EPS
-          const tLo = startCoord(room, side) + lo
-          const tHi = startCoord(room, side) + hi
-          if (onAabbZ && Math.abs(tLo - aabb.minX) < EPS) elo -= WALL_T
-          if (onAabbZ && Math.abs(tHi - aabb.maxX) < EPS) ehi += WALL_T
+      // fullHeight openings to the exterior (balcony edge, 阳台): the
+      // full-height wall across the span is replaced by a parapet
+      const extGaps: [number, number][] = openings
+        .filter((o) => o.kind === 'open' && o.fullHeight)
+        .map((o) => [o.offset - o.width / 2, o.offset + o.width / 2] as [number, number])
+        .sort((a, b) => a[0] - b[0])
+      const plain = openings.filter((o) => !(o.kind === 'open' && o.fullHeight))
+
+      let segIdx = 0
+      extSpans.forEach(([lo, hi]) => {
+        // split the span into full-height wall pieces and parapet gaps
+        const pieces: { lo: number; hi: number; parapet: boolean }[] = []
+        let cur = lo
+        for (const [gLo, gHi] of extGaps) {
+          const a = Math.min(hi, Math.max(lo, gLo))
+          const b = Math.min(hi, Math.max(lo, gHi))
+          if (a - cur > EPS) pieces.push({ lo: cur, hi: a, parapet: false })
+          if (b - a > EPS) pieces.push({ lo: a, hi: b, parapet: true })
+          cur = Math.max(cur, b)
         }
-        const doorways: WallDoorway[] = []
-        const windows: WallWindow[] = []
-        for (const o of openings) {
-          const tCenter = o.offset // room wall-local
-          if (tCenter < lo - EPS || tCenter > hi + EPS) continue
-          if (o.kind === 'window') {
-            windows.push({ u: tCenter - elo, w: o.width })
-          } else {
-            doorways.push({ u: tCenter - elo, w: o.width, kind: o.kind })
+        if (hi - cur > EPS) pieces.push({ lo: cur, hi, parapet: false })
+
+        for (const p of pieces) {
+          // corner caps: extend n/s full-height segments at ends that
+          // coincide with an aabb corner (parapets stay unextended)
+          let elo = p.lo
+          let ehi = p.hi
+          if (!p.parapet && axis === 'x') {
+            const zLine = pointAt(room, side, p.lo)[1]
+            const onAabbZ =
+              Math.abs(zLine - aabb.minZ) < EPS || Math.abs(zLine - aabb.maxZ) < EPS
+            const tLo = startCoord(room, side) + p.lo
+            const tHi = startCoord(room, side) + p.hi
+            if (onAabbZ && Math.abs(tLo - aabb.minX) < EPS) elo -= WALL_T
+            if (onAabbZ && Math.abs(tHi - aabb.maxX) < EPS) ehi += WALL_T
           }
+          const doorways: WallDoorway[] = []
+          const windows: WallWindow[] = []
+          if (!p.parapet) {
+            for (const o of plain) {
+              const tCenter = o.offset // room wall-local
+              if (tCenter < p.lo - EPS || tCenter > p.hi + EPS) continue
+              if (o.kind === 'window') {
+                windows.push({ u: tCenter - elo, w: o.width })
+              } else {
+                doorways.push({ u: tCenter - elo, w: o.width, kind: o.kind })
+              }
+            }
+          }
+          segments.push({
+            key: `ext:${room.id}:${side}:${segIdx++}`,
+            kind: 'ext',
+            axis,
+            from: pointAt(room, side, elo),
+            to: pointAt(room, side, ehi),
+            height: p.parapet ? PARAPET_H : wallHeight,
+            doorways,
+            windows,
+            normal: OUTWARD[side],
+            roomId: room.id,
+          })
         }
-        segments.push({
-          key: `ext:${room.id}:${side}:${i}`,
-          kind: 'ext',
-          axis,
-          from: pointAt(room, side, elo),
-          to: pointAt(room, side, ehi),
-          height: wallHeight,
-          doorways,
-          windows,
-          normal: OUTWARD[side],
-          roomId: room.id,
-        })
       })
     }
   }
