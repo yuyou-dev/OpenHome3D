@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
+import { homeAABB, roomById } from '../state/home'
 import { subscribeZoomPct } from '../three/runtime'
 import { useUI } from './uiStore'
 import { IconButton } from './components'
@@ -89,14 +90,21 @@ export default function StatusBar() {
   const [zoomPct, setZoomPct] = useState(100)
   useEffect(() => subscribeZoomPct(setZoomPct), [])
 
-  const room = useStore((s) => s.home.rooms[0])
+  const home = useStore((s) => s.home)
+  const room = useStore((s) => s.home.rooms.find((r) => r.id === s.activeRoomId) ?? s.home.rooms[0])
   const seed = useStore((s) => s.seed)
   const inst = useStore((s) => s.furniture.find((f) => f.id === s.selectedId))
+  const instRoomName = useStore((s) => {
+    const f = s.furniture.find((it) => it.id === s.selectedId)
+    return f ? (roomById(s.home, f.roomId)?.name ?? '') : ''
+  })
   const duplicateFurniture = useStore((s) => s.duplicateFurniture)
   const removeFurniture = useStore((s) => s.removeFurniture)
   const openModal = useUI((s) => s.openModal)
 
   const roomLabel = room.name.toUpperCase()
+  const bb = homeAABB(home)
+  const totalArea = home.rooms.reduce((sum, r) => sum + r.rect.w * r.rect.d, 0)
 
   const rotate = (dir: 1 | -1) => {
     const s = useStore.getState()
@@ -109,8 +117,8 @@ export default function StatusBar() {
       {inst && (
         <>
           <div className="sel-pill">
-            <span className="pill-name" title={inst.label}>
-              {inst.label}
+            <span className="pill-name" title={`${inst.label} · ${instRoomName}`}>
+              {inst.label} · {instRoomName.toUpperCase()}
             </span>
             <div className="pill-btns">
               <IconButton title="左转 15° Rotate left" onClick={() => rotate(-1)}>
@@ -136,8 +144,8 @@ export default function StatusBar() {
         </>
       )}
       <div className="status-info">
-        {zoomPct}% · {roomLabel} · {room.rect.w.toFixed(2)} × {room.rect.d.toFixed(2)} M · SEED{' '}
-        {seed} <GridInput />
+        {zoomPct}% · {roomLabel} · 整宅 {bb.w.toFixed(2)} × {bb.d.toFixed(2)} M ·{' '}
+        {totalArea.toFixed(1)} M² · SEED {seed} <GridInput />
       </div>
     </div>
   )

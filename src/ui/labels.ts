@@ -40,3 +40,11 @@ export const OPENING_KIND_LABELS: Record<Opening['kind'], string> = {
   open: '门洞 Open',
   window: '窗 Window',
 }
+
+/** Kind label with the fullHeight nuance (balcony parapet vs opened-up wall). */
+export function openingKindLabel(o: Opening): string {
+  if (o.kind === 'open' && o.fullHeight) {
+    return o.b === 'exterior' ? '阳台开口 Balcony opening' : '打通 Opened up'
+  }
+  return OPENING_KIND_LABELS[o.kind]
+}

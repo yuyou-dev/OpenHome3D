@@ -1,120 +1,25 @@
-import { type CSSProperties, useRef } from 'react'
-import { useStore } from '../state/store'
+import { useRef } from 'react'
+import { useStore, type PlanTab } from '../state/store'
 import { ROOM_TYPES } from '../gen/roomTypes'
-import { sideSpan, type Opening, type RoomDef, type Side } from '../state/home'
 import { useUI } from './uiStore'
 import SelectionPanel from './SelectionPanel'
-import { OPENING_KIND_LABELS, SIDE_LABELS } from './labels'
-import { GhostButton, IconButton, NumberInput, Row, Section, Slider } from './components'
+import HomeTab from './HomeTab'
+import { GhostButton, NumberInput, Section, SegmentedTabs, Slider } from './components'
 
-const SIDES: Side[] = ['n', 's', 'e', 'w']
+const PLAN_TABS: { value: PlanTab; label: string }[] = [
+  { value: 'home', label: '整宅 Home' },
+  { value: 'room', label: '房间 Room' },
+]
 
-const cardStyle: CSSProperties = {
-  border: '1px solid #e2e2e2',
-  borderRadius: 6,
-  padding: '6px 8px',
-  marginTop: 6,
-}
-
-const miniBtnStyle: CSSProperties = {
-  padding: '2px 8px',
-  fontSize: 11,
-  whiteSpace: 'nowrap',
-}
-
-/** One opening on the room's exterior wall: kind select / offset slider / width / delete. */
-function OpeningCard({ room, opening }: { room: RoomDef; opening: Opening }) {
-  const updateOpening = useStore((s) => s.updateOpening)
-  const removeOpening = useStore((s) => s.removeOpening)
-  const span = sideSpan(room, opening.side).length
-  return (
-    <div style={cardStyle}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <select
-          className="input"
-          style={{ flex: 1, minWidth: 0 }}
-          value={opening.kind}
-          onChange={(e) => updateOpening(opening.id, { kind: e.target.value as Opening['kind'] })}
-        >
-          {(['door', 'open', 'window'] as const).map((k) => (
-            <option key={k} value={k}>
-              {OPENING_KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
-        <span className="caption">{SIDE_LABELS[opening.side]}</span>
-        <IconButton title="删除 Delete" onClick={() => removeOpening(opening.id)}>
-          ×
-        </IconButton>
-      </div>
-      <Slider
-        label="位置 Offset"
-        value={opening.offset}
-        min={opening.width / 2}
-        max={Math.max(opening.width / 2, span - opening.width / 2)}
-        step={0.05}
-        display={`${opening.offset.toFixed(2)} m`}
-        onChange={(v) => updateOpening(opening.id, { offset: v })}
-      />
-      <NumberInput
-        label="宽度 Width"
-        value={opening.width}
-        min={0.5}
-        max={2.4}
-        step={0.05}
-        unit="m"
-        onCommit={(v) => updateOpening(opening.id, { width: v })}
-      />
-    </div>
-  )
-}
-
-/** Door/window editing for the single room — all four walls are exterior. */
-function OpeningsSection({ room }: { room: RoomDef }) {
-  const home = useStore((s) => s.home)
-  const addOpening = useStore((s) => s.addOpening)
-  const own = home.openings.filter((o) => o.a === room.id)
-
-  const addOnSide = (side: Side, kind: 'door' | 'window') => {
-    addOpening({
-      kind,
-      a: room.id,
-      b: 'exterior',
-      side,
-      offset: sideSpan(room, side).length / 2,
-      width: kind === 'window' ? 1.2 : 0.9,
-    })
-  }
-
-  return (
-    <Section title="门窗 Openings" collapsible>
-      {SIDES.map((side) => (
-        <Row key={side} label={SIDE_LABELS[side]}>
-          <GhostButton style={miniBtnStyle} onClick={() => addOnSide(side, 'door')}>
-            + 门 Door
-          </GhostButton>
-          <GhostButton style={miniBtnStyle} onClick={() => addOnSide(side, 'window')}>
-            + 窗 Window
-          </GhostButton>
-        </Row>
-      ))}
-      {own.map((o) => (
-        <OpeningCard key={o.id} room={room} opening={o} />
-      ))}
-      {own.length === 0 && <p className="hint">还没有门窗 No openings yet.</p>}
-    </Section>
-  )
-}
-
-/** 方案 Plan: seed, room type, dimensions, wall height, partition, openings. */
-function PlanSection() {
-  const room = useStore((s) => s.home.rooms[0])
+/** 房间 Room tab: edits the ACTIVE room's contents (structure/openings live in the Home tab). */
+function RoomTab() {
+  const room = useStore((s) => s.home.rooms.find((r) => r.id === s.activeRoomId) ?? s.home.rooms[0])
   const setRoomType = useStore((s) => s.setRoomType)
   const setRoomRect = useStore((s) => s.setRoomRect)
+  const setPlanTab = useStore((s) => s.setPlanTab)
   const newRoom = useStore((s) => s.newRoom)
   const reshuffleFurniture = useStore((s) => s.reshuffleFurniture)
   const wallHeight = useStore((s) => s.wallHeight)
-  const setStructure = useStore((s) => s.setStructure)
   const setRoomPartition = useStore((s) => s.setRoomPartition)
 
   const partitionHeight = room.partitionHeight
@@ -123,6 +28,25 @@ function PlanSection() {
 
   return (
     <>
+      {/* label + link already fill the row, so the value wraps to its own line:
+          the name ellipsizes (title tooltip) and the link stays whole */}
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <span className="row-label">当前房间 Room</span>
+        <span
+          className="row-value"
+          style={{ flex: '1 1 100%', minWidth: 0, justifyContent: 'space-between' }}
+        >
+          <span
+            title={room.name}
+            style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {room.name}
+          </span>
+          <button type="button" className="link-btn" onClick={() => setPlanTab('home')}>
+            在整宅中编辑 Edit in Home
+          </button>
+        </span>
+      </div>
       <div className="row">
         <span className="row-label">房间类型 Room type</span>
         <span className="row-value" style={{ flex: 1, maxWidth: 132 }}>
@@ -158,15 +82,6 @@ function PlanSection() {
         onCommit={(v) => setRoomRect(room.id, { ...room.rect, d: v })}
       />
       <NumberInput
-        label="墙高 Wall height"
-        value={wallHeight}
-        min={2}
-        max={5}
-        step={0.05}
-        unit="m"
-        onCommit={(v) => setStructure({ wallHeight: v })}
-      />
-      <NumberInput
         label="隔墙 Partition"
         value={partitionHeight}
         min={0}
@@ -179,7 +94,6 @@ function PlanSection() {
         <GhostButton onClick={() => newRoom()}>新建房间 New room</GhostButton>
         <GhostButton onClick={() => reshuffleFurniture()}>换一换 Shuffle</GhostButton>
       </div>
-      <OpeningsSection room={room} />
     </>
   )
 }
@@ -197,6 +111,8 @@ export default function Sidebar() {
   const openModal = useUI((s) => s.openModal)
   const pushToast = useUI((s) => s.pushToast)
   const selectedId = useStore((s) => s.selectedId)
+  const planTab = useStore((s) => s.planTab)
+  const setPlanTab = useStore((s) => s.setPlanTab)
 
   const extras = useStore((s) => s.extras)
   const setExtras = useStore((s) => s.setExtras)
@@ -243,7 +159,11 @@ export default function Sidebar() {
         {selectedId && <SelectionPanel />}
 
         <Section title="方案 Plan" collapsible>
-          <PlanSection />
+          <div style={{ marginBottom: 10 }}>
+            <SegmentedTabs options={PLAN_TABS} value={planTab} onChange={setPlanTab} />
+          </div>
+          {planTab === 'room' && <RoomTab />}
+          {planTab === 'home' && <HomeTab />}
         </Section>
 
         <Section title="家具 Furniture" collapsible>

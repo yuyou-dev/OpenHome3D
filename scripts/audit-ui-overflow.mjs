@@ -191,6 +191,34 @@ const STATES = [
     },
   },
   {
+    // home tab: room list + openings rows (3 wrap-prone mini buttons per side)
+    id: 'S1b-home-tab',
+    async setup(page) {
+      await evalStore(page, () => {
+        const s = window.__store.getState()
+        window.__origHome = window.__origHome ?? JSON.parse(JSON.stringify(s.home))
+        s.select(null)
+        if (s.home.rooms.length < 3) {
+          s.addRoom('bedroom')
+          s.addRoom('balcony')
+        }
+        s.selectRoom(s.home.rooms[0].id)
+        s.setPlanTab('home')
+      })
+    },
+  },
+  {
+    id: 'S1c-home-tab-restore',
+    async setup(page) {
+      await evalStore(page, () => {
+        const s = window.__store.getState()
+        // restore the original single-room home so later states keep their baseline
+        if (window.__origHome) s.importHome(window.__origHome)
+        s.setPlanTab('room')
+      })
+    },
+  },
+  {
     id: 'S2-studio',
     async setup(page) {
       await evalStore(page, () => {

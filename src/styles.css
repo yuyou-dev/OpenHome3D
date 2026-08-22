@@ -1094,6 +1094,45 @@ textarea.input:focus,
   box-shadow: inset 0 0 0 1px var(--blue);
 }
 
+/* room list entry (Home tab): .card conventions in list form; active = candy blue */
+.room-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.room-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.room-item.active,
+.room-item.active:hover {
+  background: var(--blue);
+  color: var(--ink);
+  transform: none;
+  box-shadow: none;
+}
+
+.room-item .caption {
+  color: var(--muted);
+}
+
+.room-item.active .caption {
+  color: rgba(26, 26, 26, 0.65);
+}
+
 .card-thumb {
   width: 100%;
   aspect-ratio: 1;
