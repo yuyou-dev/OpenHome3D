@@ -15,11 +15,11 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 
 ## 核心契约(改动会牵连多处,先读再动)
 
-- **状态**:`src/state/store.ts`(zustand + persist `openhome3d` **v1**)。**单间约束**:`home.rooms` 恒为 1(HomeDef 包装保留,布局引擎/墙体推导/门洞避让与多房间版共用零改动);`FurnitureInstance.roomId` 保留但恒为 rooms[0].id,`position` 是房间局部坐标。dev 下暴露 `window.__store`、`window.__three` 供脚本驱动
+- **状态**:`src/state/store.ts`(zustand + persist `openhome3d` **v2**,migrate 把 v1 数据纯透传升级)。**多房间整宅**:`home{rooms,openings}`(类型与纯函数在 `src/state/home.ts`)+ 整宅级 `seed`;`FurnitureInstance.roomId` 归属,`position` 是房间局部坐标(房间中心为原点);`planTab`/`selectedId`/`activeRoomId`/`selectedOpeningId`/`lastSwapId` 不持久化(activeRoomId 回落 rooms[0]);`planImageKey` 持久化(户型原图字节在 IndexedDB,见 `src/lib/planImage.ts`)。dev 下暴露 `window.__store`、`window.__three` 供脚本驱动
 - **模型注册表**:`src/models/registry.ts`。`ModelDef{id, name, brand, type, kind: parametric|glb|upload, file?, footprint, height?, mount?, params?}`;GLB 的 id 带 `kenney:`/`kaykit:` 前缀,footprint/height/mount 来自 manifest(size-rules),不要再写类型级估值
 - **3D ↔ UI 总线**:`src/three/runtime.ts` — `requestView/subscribeView`、`subscribeZoomPct`、`captureScreenshot()`、`captureFittedScreenshot(ratio?)`、`MODEL_BLOB_KEY`、`subscribeSceneReady/emitSceneReady`(场景就绪一次性信号)。UI 不反向 import three 场景组件,只走这里
 - **加载遮罩**:`SceneRoot` 的 `ReadyProbe` 在 GLB 资产加载完 + 稳定渲染数帧后 emit 就绪(90 帧/4s 双兜底),`src/ui/LoadingVeil.tsx` 全屏品牌加载屏淡出。**首次渲染不稳定(画布尺寸未稳定/模型未加载),绝不能让裸画面直接露出**
-- **IndexedDB 键**:`model:upload:<uuid>`(上传 GLB Blob)
+- **IndexedDB 键**:`model:upload:<uuid>`(上传 GLB Blob)、`plan:image`(最近导入的户型原图 dataURL;store 只持久化 `planImageKey` 作为"有图"标记,`newHome` 切模板时清除)
 - **布局确定性**:`generateLayout` 只依赖 `{roomType, seed, salt, width, depth, extras, doors?}`;seed 由 store 拼成 `${seed}@${room.id}`,`salt` 在 `RoomDef` 上(重排计数);引擎产物 id `f1…` 由 store 加 `${roomId}:` 前缀,用户操作产生的 id 用 `uid()`。门洞避让:store 经 `doorZonesFor(room, home)` 传 `LayoutOpts.doors`,placeWall/placeRun 跳过与门区间外扩 `DOOR_CLEAR=0.35` 相交的候选
 
 ## 渲染风格(全项目统一,勿破例)
@@ -56,6 +56,6 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 
 ## 已知限制(接受)
 
-- 仅单间:`home.rooms` 长度恒 1(引擎层 gen/walls 已多房间就绪——含打通/阳台护栏推导——store/UI 仍单间,多房间 UI 迭代中)
+- store 已多房间化(`activeRoomId` 归属),但 UI 仍单间形态(多房间标签页/编辑器迭代中);户型导入接线(`importHome`)随 AI 能力一起落地
 - front/center/free/ring 布局规则不避门(墙贴/跑道类已避);极端小房间门多时可能摆件失败,靠引擎 24 次 attempt 丢弃机制兜底
 - 隔墙永不隐藏,不参与 cutaway
