@@ -19,19 +19,19 @@
 
 ## What is this?
 
-OpenHome3D is the open-source edition of **家居生成器 Cartoon (Home Generator Cartoon)** — a single-room DIY home-design toy. A procedural engine arranges furniture from a seed you type; you then swap models, upload your own, drag pieces around on a snap grid, and tune the room itself (dimensions, wall height, doors and windows on all four walls).
+OpenHome3D is the open-source edition of **家居生成器 Cartoon (Home Generator Cartoon)** — a DIY home-design toy. A procedural engine arranges furniture from a seed you type, for a single room or a whole home (studio / 1-bedroom / 2-bedroom templates); you then swap models, upload your own, drag pieces around on a snap grid, and tune the structure itself (room sizes, wall height, doors and windows, interior openings and balcony parapets) — including a top-down structure editor for dragging and resizing rooms.
 
 Everything renders in a **stylized cel-shaded look**: flat toon colors, 4-step light bands, 1 px ink outlines, and soft lavender-tinted shadows — like a playable toy diorama.
 
 ## Features
 
-- **Seeded room generation** — 7 room types (studio, living room, bedroom, kitchen, bathroom, office, dining). Same seed + same dimensions ⇒ same layout, every time.
+- **Seeded whole-home generation** — 8 room types (studio, living room, bedroom, kitchen, bathroom, office, dining, balcony) × 3 home templates (studio / 1br / 2br). Same seed + same template ⇒ same layout, every time.
 - **Cel-shaded 3D** — `MeshToonMaterial` with a shared 4-step gradient map, edge outlines (`EdgesGeometry` with an inverted-hull fallback for smooth meshes), PCF soft shadows and purple-tinted ambient occlusion. Isometric & perspective cameras, 4 iso corner presets + top view.
 - **337 furniture models, all local** — Kenney Furniture Kit + KayKit Bits (CC0), plus 18 built-in parametric pieces (resize seats/arms/radius live). Models ship in `public/models/`; nothing is fetched from the network at runtime.
 - **A coherent candy palette** — GLB assets keep their original flat colors; parametric furniture is colored from one curated palette (`src/models/palette.ts`), so everything looks like one toy set.
-- **Real editing** — click to select, drag with 5 cm grid snap (Alt = off-grid), arrow-key nudge, A/E rotate ±15°, right-drag pan, duplicate / delete / swap model / scale.
+- **Real editing** — click to select, drag with 5 cm grid snap (Alt = off-grid), arrow-key nudge, A/E rotate ±15°, right-drag / Shift+left-drag / pan-mode toggle for camera panning, duplicate / delete / swap model / scale.
 - **Upload your own models** — `.glb .gltf .obj .stl .ply .dae`, converted to GLB in the browser and stored in IndexedDB.
-- **Room structure control** — width/depth/wall height/partition wall, doors & windows on any of the 4 exterior walls, cutaway walls that follow the camera.
+- **Home structure control** — Home/Room sidebar tabs: per-room type/size/partition, a room list with add/remove, doors & windows on exterior walls, interior doors and full-height openings (打通) on shared walls, balcony parapets, wall height, and cutaway walls that follow the camera. The HomeEditor overlay (Home tab) drags and resizes rooms in a top-down view.
 - **Neo-Brutalism UI** — cream paper, thick ink borders, hard shadows, candy buttons; bilingual labels (中文 + English).
 
 ## Quick start
@@ -126,7 +126,7 @@ Issues and PRs are welcome. Please keep the two style contracts intact: **cel-sh
 
 ## 中文简介
 
-**OpenHome3D** 是「家居生成器 Cartoon」的开源版：一个完全跑在浏览器里的卡通风 3D 家装小工具。输入种子即可一键生成带全套家具的单间（7 种房型）， cel-shaded 平涂卡通渲染 + Neo-Brutalism 界面；支持换模、上传自己的模型（.glb/.gltf/.obj/.stl/.ply/.dae）、5cm 网格拖拽、方向键微调、A/E 旋转，以及面宽/进深/墙高/隔墙和四面外墙门窗编辑。**无任何后端、账号或 API key**。
+**OpenHome3D** 是「家居生成器 Cartoon」的开源版：一个完全跑在浏览器里的卡通风 3D 家装小工具。输入种子即可一键生成带全套家具的整宅（8 种房型 × 单间/一居/两居 3 档模板）， cel-shaded 平涂卡通渲染 + Neo-Brutalism 界面；支持换模、上传自己的模型（.glb/.gltf/.obj/.stl/.ply/.dae）、5cm 网格拖拽、方向键微调、A/E 旋转、右键/Shift+左键/平移模式平移，面宽/进深/墙高/隔墙/门窗编辑（含内墙打通、阳台护栏）与 HomeEditor 顶视拖拽改房间。**无任何后端、账号或 API key**。
 
 快速开始（需要 Node.js ≥ 20）：
 
@@ -135,4 +135,4 @@ npm install
 npm run dev        # 终端会打印本地地址（随机高端口）
 ```
 
-其他命令：`npm run build`（严格类型检查 + 构建）、`npm run smoke`（布局引擎 146 项测试）、`npm run smoke:ui` / `npm run audit:ui`（无头 UI 回归）。家具资产为 Kenney / KayKit 的 CC0 模型，许可见 `public/models/*/LICENSE.txt`。本项目以 MIT 协议开源。
+其他命令：`npm run build`（严格类型检查 + 构建）、`npm run smoke`（布局引擎 205 项测试）、`npm run smoke:ui` / `npm run audit:ui`（无头 UI 回归）。家具资产为 Kenney / KayKit 的 CC0 模型，许可见 `public/models/*/LICENSE.txt`。本项目以 MIT 协议开源。

@@ -8,6 +8,7 @@ import { homeAABB } from '../state/home'
 import CameraRig, { ORTHO_ZOOM, PERSP_RADIUS } from './CameraRig'
 import Lights from './Lights'
 import Home from './Home'
+import HomeEditor from './HomeEditor'
 import FurnitureItem from './FurnitureItem'
 import Effects from './Effects'
 import { emitSceneReady, emitZoomPct, setRootState } from './runtime'
@@ -72,6 +73,7 @@ function useKeyboardShortcuts() {
       const s = useStore.getState()
       if (e.key === 'Escape') {
         s.select(null)
+        s.selectOpening(null)
         return
       }
       const id = s.selectedId
@@ -127,6 +129,7 @@ export default function SceneRoot() {
   const furniture = useStore((s) => s.furniture)
   const showFurniture = useStore((s) => s.showFurniture)
   const panMode = useUI((s) => s.panMode)
+  const planTab = useStore((s) => s.planTab)
   useKeyboardShortcuts()
 
   // Guard: a click after an orbit/drag (>5 px travel) is not a deselect.
@@ -161,6 +164,7 @@ export default function SceneRoot() {
       <CameraRig />
       <Lights />
       <Home />
+      {planTab === 'home' && <HomeEditor />}
       {showFurniture &&
         home.rooms.map((r) => (
           <group key={r.id} position={[r.rect.x, 0, r.rect.z]}>
