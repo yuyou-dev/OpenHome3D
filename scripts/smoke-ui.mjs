@@ -3,7 +3,7 @@ import puppeteer from 'puppeteer-core'
 
 const url = process.env.APP_URL || 'http://127.0.0.1:59683/'
 const out = process.env.SHOT || '/tmp/openhome3d.png'
-const actions = process.env.ACTIONS || '' // e.g. "select-first" | "open-add" | "shuffle" | "new-room" | "loading-veil" | "openings-bounds"
+const actions = process.env.ACTIONS || '' // e.g. "select-first" | "open-add" | "open-ai" | "shuffle" | "new-room" | "loading-veil" | "openings-bounds"
 const chromePath =
   process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
@@ -106,6 +106,12 @@ if (actions.includes('open-add')) {
     btns.find((b) => b.textContent.includes('ADD FURNITURE'))?.click()
   })
   await new Promise((r) => setTimeout(r, 3500))
+}
+if (actions.includes('open-ai')) {
+  await page.evaluate(() => {
+    document.querySelector('.ai-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await new Promise((r) => setTimeout(r, 2000))
 }
 if (actions.includes('select-first')) {
   // click center of canvas to try selecting a furniture piece

@@ -3,6 +3,7 @@ import { useUI } from './uiStore'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import StatusBar from './StatusBar'
+import PlanMinimap from './PlanMinimap'
 import Toasts from './Toasts'
 import Modals from './Modals'
 import LoadingVeil from './LoadingVeil'
@@ -42,6 +43,7 @@ export default function AppUI() {
       <div className={`ui-overlay${collapsed ? ' collapsed' : ''}`}>
         <TopBar />
         <StatusBar />
+        <PlanMinimap />
       </div>
       <Toasts />
       <Modals />

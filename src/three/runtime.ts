@@ -97,6 +97,29 @@ export function captureScreenshot(): string | null {
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
 
+/** Camera with an optional three.js view-offset (the editor's framing bias). */
+type ViewOffsetCamera = THREE.OrthographicCamera | THREE.PerspectiveCamera
+
+/**
+ * Screenshot WITHOUT the editor's framing bias: AI-render inputs must be
+ * truly centered — the image model recenters subjects on its own, so a biased
+ * input guarantees a framing mismatch between the 3D view and the render.
+ * Clears the view offset, renders fresh frames, captures, then restores it.
+ */
+export async function captureUnbiasedScreenshot(): Promise<string | null> {
+  if (!rootState) return null
+  const cam = rootState.camera as ViewOffsetCamera
+  if (!cam.setViewOffset) return captureScreenshot()
+  const saved = cam.view ? { ...cam.view } : null
+  if (!saved?.enabled) return captureScreenshot() // no bias active — read the buffer as-is
+  cam.clearViewOffset()
+  await nextFrame()
+  await nextFrame()
+  const shot = captureScreenshot()
+  cam.setViewOffset(saved.fullWidth, saved.fullHeight, saved.offsetX, saved.offsetY, saved.width, saved.height)
+  return shot
+}
+
 /**
  * Best-fit screenshot: temporarily re-frames the camera so the room bounds
  * (walls + slab, up to wall height) fill the frame at the requested output
@@ -153,6 +176,7 @@ export async function captureFittedScreenshot(targetRatio?: number): Promise<str
   const savedPos = camera.position.clone()
   const savedQuat = camera.quaternion.clone()
   const savedZoom = camera.zoom
+  const savedView = camera.view ? { ...camera.view } : null
   const wasEnabled = controls?.enabled ?? false
 
   const isOrtho = (camera as THREE.OrthographicCamera).isOrthographicCamera === true
@@ -168,6 +192,9 @@ export async function captureFittedScreenshot(targetRatio?: number): Promise<str
     camera.position.copy(target).addScaledVector(dir, Math.max(distX, distY) * 1.15)
     camera.lookAt(target)
   }
+  // drop the editor's framing bias while capturing: the image model centers
+  // the subject on its own, so a biased input guarantees a mismatched render
+  if (savedView?.enabled) (camera as ViewOffsetCamera).clearViewOffset()
   camera.updateProjectionMatrix()
   if (controls) controls.enabled = false
 
@@ -178,6 +205,16 @@ export async function captureFittedScreenshot(targetRatio?: number): Promise<str
   camera.position.copy(savedPos)
   camera.quaternion.copy(savedQuat)
   camera.zoom = savedZoom
+  if (savedView?.enabled) {
+    ;(camera as ViewOffsetCamera).setViewOffset(
+      savedView.fullWidth,
+      savedView.fullHeight,
+      savedView.offsetX,
+      savedView.offsetY,
+      savedView.width,
+      savedView.height,
+    )
+  }
   camera.updateProjectionMatrix()
   if (controls) controls.enabled = wasEnabled
   await nextFrame()

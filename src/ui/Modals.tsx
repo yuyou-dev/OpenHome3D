@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useUI } from './uiStore'
+import AIRender from './modals/AIRender'
 import ModelBrowser from './modals/ModelBrowser'
 import UploadModel from './modals/UploadModel'
 
@@ -24,6 +25,7 @@ export default function Modals() {
       {active.kind === 'upload' && returnTo && <ModelBrowser mode={returnTo} />}
       {(active.kind === 'swap' || active.kind === 'add') && <ModelBrowser mode={active.kind} />}
       {active.kind === 'upload' && <UploadModel />}
+      {active.kind === 'ai' && <AIRender />}
     </>
   )
 }

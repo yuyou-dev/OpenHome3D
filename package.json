@@ -1,7 +1,7 @@
 {
   "name": "openhome3d",
-  "version": "0.1.0",
-  "description": "Open-source cartoon-style (cel-shaded) single-room home designer with a Neo-Brutalism UI — procedural seed-based layouts, 337 CC0 furniture models, model upload, and playful editing.",
+  "version": "0.2.0",
+  "description": "Open-source cartoon-style (cel-shaded) single-room home designer with a Neo-Brutalism UI \u2014 procedural seed-based layouts, 337 CC0 furniture models, model upload, and playful editing.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -30,7 +30,9 @@
     "smoke": "tsx scripts/smoke-gen.ts",
     "smoke:ui": "node scripts/smoke-ui.mjs",
     "audit:ui": "node scripts/audit-ui-overflow.mjs",
-    "assets": "node scripts/fetch-assets.mjs && node scripts/build-manifest.mjs"
+    "assets": "node scripts/fetch-assets.mjs && node scripts/build-manifest.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "scan:public": "node scripts/public-scan.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",
@@ -38,6 +40,7 @@
     "@react-three/postprocessing": "3.0.4",
     "idb-keyval": "6.3.0",
     "react": "19.2.8",
+    "react-compare-slider": "^4.0.0",
     "react-dom": "19.2.8",
     "seedrandom": "3.0.5",
     "three": "0.185.1",

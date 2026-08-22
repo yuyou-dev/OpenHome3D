@@ -3,6 +3,8 @@ import { useStore } from '../state/store'
 import { useUI } from './uiStore'
 import { HOME_TEMPLATES } from '../gen/templates'
 import { ROOM_TYPES, getRoomType } from '../gen/roomTypes'
+import { planJsonToHome, type PlanJson } from '../gen/importPlan'
+import { aiStatus, cancelAiTask, downscaleImageToPng, understandPlan } from '../lib/ai'
 import {
   roomById,
   sharedSpan,
@@ -88,6 +90,258 @@ function TemplateRow() {
           </GhostButton>
         )}
       </span>
+    </div>
+  )
+}
+
+/**
+ * Floor-plan image import: pick a png/jpeg → downscale → POST /api/ai/understand
+ * (codex, ~40–70 s, cancellable) → lightweight confirm row → planJsonToHome →
+ * store.importHome + setPlanImage (corner minimap source, see PlanMinimap).
+ * Recognition failures surface as code-specific toasts; cancelling is silent.
+ * When the server reports 'busy' (single-flight slot held by another/stale
+ * task), the image queues: status polls every 2 s auto-start it once the slot
+ * frees, and「中止 Kill」force-kills the other task server-side. A client
+ * abort/refresh makes the server kill the codex subprocess, so the slot never
+ * stays stuck.
+ *
+ * Dynamic-state layout note: the elapsed-seconds labels grow while running,
+ * so every state row wraps (flexWrap) and the growing button is allowed to
+ * shrink with an ellipsis — anything else spills past the sidebar.
+ */
+function ImportRow() {
+  const importHome = useStore((s) => s.importHome)
+  const setPlanImage = useStore((s) => s.setPlanImage)
+  const pushToast = useUI((s) => s.pushToast)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const pollRef = useRef<number | null>(null)
+  const imgRef = useRef<string | null>(null) // image waiting for a free slot
+  const startRef = useRef(0) // running: our start; queued: other task's busySince
+  const [phase, setPhase] = useState<'idle' | 'running' | 'queued'>('idle')
+  const [elapsed, setElapsed] = useState(0)
+  const [pending, setPending] = useState<{
+    plan: PlanJson
+    rooms: number
+    w: number
+    d: number
+    dataUrl: string
+  } | null>(null)
+
+  // elapsed-seconds ticker (running: our task; queued: the blocking task)
+  useEffect(() => {
+    if (phase === 'idle') return
+    const t = setInterval(
+      () => setElapsed(Math.max(0, Math.floor((Date.now() - startRef.current) / 1000))),
+      1000,
+    )
+    return () => clearInterval(t)
+  }, [phase])
+
+  const stopPolling = () => {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  // abort an in-flight recognition + stop queue polling if the tab unmounts
+  useEffect(
+    () => () => {
+      abortRef.current?.abort()
+      stopPolling()
+    },
+    [],
+  )
+
+  const reset = () => {
+    stopPolling()
+    imgRef.current = null
+    setPhase('idle')
+    setElapsed(0)
+    setPending(null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const recognize = async (dataUrl: string) => {
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    startRef.current = Date.now()
+    setElapsed(0)
+    setPhase('running')
+    const res = await understandPlan(dataUrl, ctrl.signal)
+    abortRef.current = null
+    if (!res.ok) {
+      if (res.error === 'cancelled') {
+        reset() // user aborted: silent (the server kills codex on disconnect)
+        return
+      }
+      if (res.code === 'busy') {
+        // single-flight slot held by another (possibly stale) task → queue:
+        // poll status, auto-start once it frees
+        startRef.current = res.startedAt ?? Date.now()
+        setPhase('queued')
+        stopPolling()
+        pollRef.current = window.setInterval(() => {
+          void aiStatus().then((st) => {
+            if (!st) return
+            if (st.busy) {
+              if (st.busySince) startRef.current = st.busySince
+              return
+            }
+            stopPolling()
+            const img = imgRef.current
+            if (img) void recognize(img)
+          })
+        }, 2000)
+        return
+      }
+      reset()
+      if (res.code === 'auth') {
+        pushToast('codex 未登录,请在终端运行 codex login / codex CLI not logged in')
+      } else if (res.code === 'cancelled') {
+        pushToast('识别任务被中止 Recognition was killed')
+      } else {
+        pushToast(res.error)
+      }
+      return
+    }
+    const plan = res.plan as PlanJson
+    const rooms = Array.isArray(plan?.rooms) ? plan.rooms.length : 0
+    const w = typeof plan?.overall?.widthM === 'number' ? plan.overall.widthM : 0
+    const d = typeof plan?.overall?.depthM === 'number' ? plan.overall.depthM : 0
+    setPhase('idle')
+    setPending({ plan, rooms, w, d, dataUrl })
+  }
+
+  const onFile = async (file: File | undefined) => {
+    if (!file || phase !== 'idle') return
+    // the endpoint only exists on the dev server — on the static demo the
+    // probe fails and we point the user at the local flow instead
+    const st = await aiStatus()
+    if (!st || !st.codex?.available) {
+      pushToast(
+        '本机功能:需在本地 npm run dev 且 codex 已登录(codex login) Local-only: run the dev server with codex logged in',
+      )
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
+    const dataUrl = await downscaleImageToPng(file, 1600)
+    if (!dataUrl) {
+      pushToast('无法读取图片 Cannot read image')
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
+    imgRef.current = dataUrl
+    void recognize(dataUrl)
+  }
+
+  const killPrevious = () => {
+    void cancelAiTask('understand').then((killed) =>
+      pushToast(killed ? '已中止上一任务 Previous task killed' : '上一任务已结束 Nothing to kill'),
+    )
+  }
+
+  const apply = () => {
+    if (!pending) return
+    try {
+      const { home, report } = planJsonToHome(pending.plan)
+      setPlanImage(pending.dataUrl)
+      importHome(home)
+      const dropped = report.roomsDropped + report.doorsDropped + report.windowsDropped
+      pushToast(
+        `已导入 ${report.roomsApplied} 房间/${report.doorsApplied} 门/${report.windowsApplied} 窗 Imported` +
+          (dropped > 0 ? `,丢弃 ${dropped} dropped` : ''),
+      )
+    } catch (err) {
+      pushToast(
+        `识别结果无法转换 Conversion failed: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    reset()
+  }
+
+  // growing status buttons get minWidth:0 + ellipsis so the row never spills
+  const growBtnStyle: CSSProperties = {
+    ...miniBtnStyle,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  }
+
+  return (
+    <div style={{ padding: '3px 0' }}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg"
+        style={{ display: 'none' }}
+        onChange={(e) => void onFile(e.target.files?.[0])}
+      />
+      {pending ? (
+        // two lines: the summary gets the full row width (no button squeeze),
+        // actions sit on their own row like 添加房间/删除房间 below
+        <div>
+          <div
+            className="caption"
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              marginBottom: 4,
+            }}
+          >
+            识别到 {pending.rooms} 个房间 · {pending.w.toFixed(1)}×{pending.d.toFixed(1)} m
+          </div>
+          <div className="btn-row">
+            <PrimaryButton style={miniBtnStyle} onClick={apply}>
+              应用 Apply
+            </PrimaryButton>
+            <GhostButton style={miniBtnStyle} onClick={reset}>
+              取消 Cancel
+            </GhostButton>
+          </div>
+        </div>
+      ) : phase === 'running' ? (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <GhostButton
+            style={{ ...growBtnStyle, flex: '1 1 120px' }}
+            disabled
+            title="识别通常需要 30~70 秒 Recognition typically takes 30–70 s"
+          >
+            识别中 {elapsed}s Recognizing…
+          </GhostButton>
+          <GhostButton style={{ ...miniBtnStyle, flexShrink: 0 }} onClick={() => abortRef.current?.abort()}>
+            取消 Cancel
+          </GhostButton>
+        </div>
+      ) : phase === 'queued' ? (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <GhostButton
+            style={{ ...growBtnStyle, flex: '1 1 100px' }}
+            disabled
+            title="等待上一识别任务结束,结束后会自动开始 Starts automatically when the previous task finishes"
+          >
+            排队中 {elapsed}s Queued…
+          </GhostButton>
+          <GhostButton
+            style={{ ...miniBtnStyle, flexShrink: 0 }}
+            title="强制中止服务器上的上一任务 Force-kill the previous task"
+            onClick={killPrevious}
+          >
+            中止 Kill
+          </GhostButton>
+          <GhostButton style={{ ...miniBtnStyle, flexShrink: 0 }} onClick={reset}>
+            取消 Cancel
+          </GhostButton>
+        </div>
+      ) : (
+        <div className="btn-row">
+          <GhostButton style={miniBtnStyle} onClick={() => fileRef.current?.click()}>
+            导入户型图 Import plan
+          </GhostButton>
+        </div>
+      )}
     </div>
   )
 }
@@ -258,6 +512,7 @@ export default function HomeTab() {
   return (
     <>
       <TemplateRow />
+      <ImportRow />
       <NumberInput
         label="墙高 Wall height"
         value={wallHeight}
