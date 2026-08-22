@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, OrthographicCamera, PerspectiveCamera } from '@react-three/drei'
 import { useStore } from '../state/store'
+import { useUI } from '../ui/uiStore'
 import { homeAABB } from '../state/home'
 import { subscribeView, type ViewPreset } from './runtime'
 
@@ -55,6 +56,8 @@ function angleDelta(a: number, b: number): number {
  */
 export default function CameraRig() {
   const projection = useStore((s) => s.projection)
+  // pan mode (TopBar toggle): left-drag / one-finger drag pans instead of orbiting
+  const panMode = useUI((s) => s.panMode)
   // orbit target follows the home AABB center (origin for the 1-room case)
   const cx = useStore((s) => homeAABB(s.home).cx)
   const cz = useStore((s) => homeAABB(s.home).cz)
@@ -74,6 +77,10 @@ export default function CameraRig() {
   const scratch = useRef(new THREE.Spherical())
   const targetRef = useRef(new THREE.Vector3(anchor.cx, 0.8, anchor.cz))
   targetRef.current.set(cx, 0.8, cz)
+  // AABB center as of the last applied camera shift — panning moves the
+  // orbit target away from it on purpose, so we track the DELTA instead of
+  // pulling the target back (a lerp-back used to undo every pan)
+  const lastCenter = useRef(new THREE.Vector3(anchor.cx, 0.8, anchor.cz))
 
   // A projection swap replaces the default camera: drop any in-flight tween
   // and re-anchor the default pose to the current AABB center (adjusting
@@ -84,7 +91,27 @@ export default function CameraRig() {
     tween.current = null
     const bb = homeAABB(useStore.getState().home)
     setAnchor({ cx: bb.cx, cz: bb.cz })
+    lastCenter.current.set(bb.cx, 0.8, bb.cz)
   }
+
+  // Shift+left-drag pans (trackpad-friendly alternative to right-drag pan and
+  // the TopBar pan-mode toggle). Restore honors the toggle's panMode.
+  useEffect(() => {
+    const controls = controlsRef.current
+    if (!controls) return
+    const onDown = (e: PointerEvent) => {
+      if (e.button === 0 && e.shiftKey) controls.mouseButtons.LEFT = THREE.MOUSE.PAN
+    }
+    const onUp = () => {
+      controls.mouseButtons.LEFT = useUI.getState().panMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('pointerup', onUp, true)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointerup', onUp, true)
+    }
+  }, [])
 
   // Frame the room slightly below center so the floor sits comfortably low
   // (also when zoomed in). viewOffset lives on the camera's projection, so it
@@ -139,28 +166,34 @@ export default function CameraRig() {
         controlsRef.current.target.copy(targetRef.current)
         controlsRef.current.update()
       }
-      if (tw.t >= 1) tween.current = null
+      if (tw.t >= 1) {
+        tween.current = null
+        // a preset/reset retakes the AABB center as the pan reference
+        lastCenter.current.copy(targetRef.current)
+      }
       return
     }
     // No explicit view change in flight: an AABB-center move (room dragged,
-    // added, removed) only retargets the orbit controls — target and camera
-    // translate together, so the relative pose never snaps.
+    // added, removed) shifts target and camera by the same delta — the pose,
+    // including any user pan offset, is preserved.
     const controls = controlsRef.current
     if (controls) {
-      const t = controls.target
       const dst = targetRef.current
-      if (t.distanceToSquared(dst) > 1e-8) {
-        const k = Math.min(1, delta * 8)
-        const px = t.x
-        const py = t.y
-        const pz = t.z
-        t.lerp(dst, k)
-        if (t.distanceToSquared(dst) < 1e-8) t.copy(dst)
+      const last = lastCenter.current
+      const dx = dst.x - last.x
+      const dy = dst.y - last.y
+      const dz = dst.z - last.z
+      if (dx * dx + dy * dy + dz * dz > 1e-12) {
+        const t = controls.target
+        t.x += dx
+        t.y += dy
+        t.z += dz
         const cam = get().camera
-        cam.position.x += t.x - px
-        cam.position.y += t.y - py
-        cam.position.z += t.z - pz
+        cam.position.x += dx
+        cam.position.y += dy
+        cam.position.z += dz
         controls.update()
+        last.copy(dst)
       }
     }
   })
@@ -190,6 +223,16 @@ export default function CameraRig() {
         enableDamping
         dampingFactor={0.08}
         screenSpacePanning={false}
+        // pan mode swaps the primary drag to pan; right-drag always pans
+        mouseButtons={{
+          LEFT: panMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.PAN,
+        }}
+        touches={{
+          ONE: panMode ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE,
+          TWO: THREE.TOUCH.DOLLY_PAN,
+        }}
         // 0.01 (not 0.15) so the 'top' preset is a true top-down view —
         // structure-edit handles/markers must not hide behind tall walls
         minPolarAngle={0.01}
