@@ -297,6 +297,16 @@ const PROGRAMS: Record<string, RoomProgram> = {
     decorTypes: ['DECOR'],
     maxDecor: 2,
   },
+  balcony: {
+    // sparse on purpose: plants only, the open parapet edge stays clear
+    rules: [
+      { kind: 'corner', model: 'builtin:plant', gate: 1 },
+      { kind: 'corner', model: 'builtin:plant', gate: 0.7 },
+      { kind: 'wall', model: 'builtin:side-table', sides: ['n', 'e', 'w'], gate: 0.6 },
+    ],
+    decorTypes: [],
+    maxDecor: 0,
+  },
 }
 
 /** Decor GLBs that make no sense standing on a floor. */

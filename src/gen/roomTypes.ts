@@ -101,6 +101,19 @@ export const ROOM_TYPES: RoomTypeSpec[] = [
     windows: { count: [1, 2], width: [1.0, 1.6] },
     doors: { count: [1, 2], width: [0.8, 0.9] },
   },
+  {
+    id: 'balcony',
+    label: '阳台 Balcony',
+    width: [2.6, 3.8],
+    depth: [1.2, 1.8],
+    wallHeight: [2.7, 3.0],
+    partitionChance: 0,
+    partitionHeight: 0,
+    // windows suppressed (count 0); the open edge is an explicit fullHeight
+    // opening (parapet) authored by import or the Home tab
+    windows: { count: [0, 0], width: [0.9, 1.2] },
+    doors: { count: [0, 0], width: [0.8, 0.9] },
+  },
 ]
 
 export const ROOM_TYPE_IDS: string[] = ROOM_TYPES.map((t) => t.id)

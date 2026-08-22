@@ -7,7 +7,7 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 ## 构建与验证
 
 - 改完必须 `npm run build`(tsc 严格模式,`noUnusedLocals`)零错误
-- 布局引擎改动后跑 `npm run smoke`(确定性/越界/碰撞/门洞避让 146 项)
+- 布局引擎改动后跑 `npm run smoke`(确定性/越界/碰撞/门洞避让/模板/导入转换/打通与护栏墙段 205 项)
 - 界面冒烟:`npm run smoke:ui`(需 dev server 在线,无头 Chrome 截图并打印控制台错误,有错误退出码 1 可作回归门;`APP_URL`/`SHOT`/`ACTIONS`/`CHROME_PATH` 环境变量控制,`ACTIONS=shuffle` 覆盖换一换,`ACTIONS=openings-bounds` 覆盖调整房间尺寸后的门窗越界回归)
 - UI 溢出审计:`npm run audit:ui`(10 状态 × 2 视口,有 finding 退出码 1,可作回归门;`SHOT_DIR=dir` 逐状态截图)
 - dev server 用随机高端口(`.port` 缓存,`scripts/pick-port.mjs`),不要写死端口
@@ -29,7 +29,7 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 - **参数化/壳体上色**:只用 `src/models/palette.ts` 的 PALETTE/SHELL 键,**禁止散落 hex**;`parametric/shared.tsx` 的 `Edged`/`Rounded`/`Mat` 接受 `color` prop(默认 cream)
 - **轮廓**:硬边件 `drei <Edges>`(lineWidth 1,ink `#2E2A26`,选中 `#2f6bff`);圆滑件回落 `drei <Outlines thickness={1}>`。判定逻辑在 `src/three/EdgedModel.tsx` 的 `edgeModeFor`(GLB 按几何体缓存)与 `src/models/parametric/shared.tsx`(RoundedBox 恒用 Outlines)
 - **灯光/后期**:半球光暖白天光 + 淡紫地面反照(粉紫阴影的来源),平行光微暖;N8AO 淡紫 `color`;画布背景是 styles.css 的奶油径向渐变
-- **壳体**:墙体不写数据,由 `src/gen/walls.ts` 的 `deriveWalls(home, wallHeight)` 推导;cutaway 只注册外墙 normal;配色在 `src/models/palette.ts` 的 SHELL(墙 cream/地板暖木/门扇木色/玻璃浅蓝)
+- **壳体**:墙体不写数据,由 `src/gen/walls.ts` 的 `deriveWalls(home, wallHeight)` 推导——共边 → 内墙居中只渲染一次(**先减去 `fullHeight` 打通区间**,剩余切为多段,key `int:a:b:i`;整段打通 = 零墙段),否则外墙内皮贴房间边、向外鼓 `WALL_T=0.12`;外墙 fullHeight 开口(阳台)渲染 `PARAPET_H=1.05` 护栏半墙(仍注册 cutaway);cutaway 只注册外墙 normal(内墙/隔墙永不隐藏);`floorSlab` 开 = 按 `homeAABB` 一整块(关 = 每房间薄板);配色在 `src/models/palette.ts` 的 SHELL(墙 cream/地板暖木/门扇木色/玻璃浅蓝)
 - **相机**:正交轴测默认;orbit target 跟随 `homeAABB` 中心(y=0.8),但**用户平移绝不拉回**——AABB 移动(拖/增删房间)只按 delta 平移相机+target(`lastCenter` 机制);视角预设/reset 才重置平移参考。`setViewOffset` 提供 -10% 取景下移。**平移交互**:右键拖动 / Shift+左键拖动 / TopBar 平移模式开关(uiStore `panMode`,会话态;开 = 左键/单指拖动平移,关 = 旋转)。**不要**加回 `zoomToCursor`
 
 ## 资产与尺寸
@@ -56,6 +56,6 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**仅单间**、**彩色
 
 ## 已知限制(接受)
 
-- 仅单间:`home.rooms` 长度恒 1;多房间/整宅请用姊妹项目(未开源)
+- 仅单间:`home.rooms` 长度恒 1(引擎层 gen/walls 已多房间就绪——含打通/阳台护栏推导——store/UI 仍单间,多房间 UI 迭代中)
 - front/center/free/ring 布局规则不避门(墙贴/跑道类已避);极端小房间门多时可能摆件失败,靠引擎 24 次 attempt 丢弃机制兜底
 - 隔墙永不隐藏,不参与 cutaway

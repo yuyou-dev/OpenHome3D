@@ -33,6 +33,13 @@ export interface Opening {
   side: Side // side of room a
   offset: number // from wall start to opening center (m) — see header conventions
   width: number // opening width along the wall (m)
+  /**
+   * Only meaningful for kind 'open' on an interior wall (b = roomId): the
+   * opening span generates NO wall at all (rooms opened up / 打通), instead
+   * of a DOOR_H-high doorway notch. The covered interval is subtracted from
+   * the interior wall during derivation (see walls.ts).
+   */
+  fullHeight?: boolean
 }
 
 export interface HomeDef {
