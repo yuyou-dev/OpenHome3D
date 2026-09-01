@@ -6,7 +6,7 @@
 ## Expected end state (observable)
 
 - The repo is cloned and dependencies are installed
-- The `openhome3d-companion` Codex plugin is installed from this repository
+- When requested, the `openhome3d-companion` Codex plugin is installed from this repository
 - `npm run doctor` exits 0 (Node ≥ 20, codex CLI found, `codex login status` OK)
 - The dev server is running and `http://127.0.0.1:<port>/api/ai/status` answers
   `{"ok":true,"codex":{"available":true},...}`
@@ -47,9 +47,16 @@ cd OpenHome3D
 npm install
 ```
 
-Already inside an existing clone → `git pull --ff-only` + `npm install`.
+Already inside an existing clone → inspect `git status --short` first. If it is
+clean, run `git pull --ff-only` + `npm install`. If it is dirty, preserve the
+user's work and ask how to proceed instead of stashing, discarding, committing,
+or overwriting it without permission.
 
-### 3. Install the Companion plugin
+### 3. Install the Companion plugin (when requested)
+
+Skip this phase when the user explicitly asked for the OpenHome3D app only.
+For a Companion-only request, use
+`plugins/openhome3d-companion/LIFECYCLE.md` instead of cloning the app.
 
 Inspect configured marketplaces first:
 
@@ -116,7 +123,7 @@ Tell the user:
 - the two AI entry points: 整宅 Home tab →「导入户型图 Import plan」(floor-plan
   recognition) and the「AI 渲染」button in the top bar (image repaint)
 - the first render/recognition takes ~1–2 minutes (codex image_gen / exec)
-- the Companion is ready in a new task; the user can say `Open the OpenHome3D community hub.` to browse Discussions, get GitHub onboarding, or prepare a contribution
+- when the Companion was requested, it is ready in a new task; the user can say `Open the OpenHome3D community hub.` to browse Discussions, get GitHub onboarding, or prepare a contribution
 
 ## Troubleshooting
 
@@ -124,4 +131,4 @@ Tell the user:
 - AI buttons warn about "Local-only" on the online demo → expected: the AI runs
   through your local codex CLI; the GitHub Pages demo has no AI backend
 - anything else → `npm run doctor -- --json` and read the failing check's hint
-- Companion not visible after installation → start a new Codex task, then run `codex plugin list` if it is still missing
+- Companion not visible after a requested installation → start a new Codex task, then run `codex plugin list` if it is still missing

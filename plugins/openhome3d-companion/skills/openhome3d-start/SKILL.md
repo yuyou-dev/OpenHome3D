@@ -1,6 +1,6 @@
 ---
 name: openhome3d-start
-description: Open the OpenHome3D Community Hub or install, update, verify, start, and introduce OpenHome3D. Use whenever the user asks for the OpenHome3D community center/hub, Companion UI, or to try, open, run, set up, or learn the project. Use for local application setup and the visual community entry, not for publishing GitHub contributions.
+description: Open the OpenHome3D Community Hub or install, update, uninstall, verify, start, and introduce OpenHome3D and its Companion. Use whenever the user asks for the OpenHome3D community center/hub, Companion UI, or to try, open, run, set up, upgrade, remove, or learn the project. Use for local application and plugin lifecycle work plus the visual community entry, not for publishing GitHub contributions.
 ---
 
 # OpenHome3D Start
@@ -33,6 +33,14 @@ The tool may be deferred even when the plugin is loaded. If it is not in the ini
 Only after exact-name discovery confirms the tool is absent should you explain the install boundary: completely quit and reopen the Codex desktop app, create a new task, and select OpenHome3D Companion through `Sources` → `Use plugins`. You may offer the normal HTTPS Discussions page as an explicitly labeled temporary fallback, but never send a `ui://` URI to the browser and never claim the interactive hub opened unless the tool call completed.
 
 Use [installation details](references/installation.md) only when handling a missing prerequisite or installing the Companion plugin itself.
+
+## Lifecycle requests
+
+For a request to install, upgrade, or uninstall the Companion itself, follow the
+plugin root `LIFECYCLE.md`. Keep the app and plugin scopes independent. An
+uninstall must preview the effect and obtain confirmation before optionally
+removing the `openhome3d` marketplace. After any plugin catalog change, explain
+the full Codex desktop restart and new-task activation boundary.
 
 ## Boundaries
 

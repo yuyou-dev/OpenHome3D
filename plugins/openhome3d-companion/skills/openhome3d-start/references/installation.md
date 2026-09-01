@@ -2,6 +2,10 @@
 
 Canonical repository: `https://github.com/yuyou-dev/OpenHome3D.git`
 
+The canonical install, upgrade, and uninstall commands are maintained in
+[`../../../LIFECYCLE.md`](../../../LIFECYCLE.md). Follow that lifecycle document
+for Companion-only requests so removal and restart guidance stay in sync.
+
 The repository also hosts the `openhome3d` Codex marketplace. To install the Companion from GitHub:
 
 ```bash
@@ -9,7 +13,7 @@ codex plugin marketplace add yuyou-dev/OpenHome3D --ref main
 codex plugin add openhome3d-companion@openhome3d
 ```
 
-When the marketplace already exists, use `codex plugin marketplace upgrade openhome3d` before reinstalling or updating the plugin.
+When the marketplace already exists, use `codex plugin marketplace upgrade openhome3d` before reinstalling or updating the plugin. To uninstall, use `codex plugin remove openhome3d-companion@openhome3d`; remove the `openhome3d` marketplace only after a separate confirmation.
 
 After installing or updating:
 

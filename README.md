@@ -41,36 +41,76 @@ Everything renders in a **stylized cel-shaded look**: flat toon colors, 4-step l
 
 ## Quick start
 
+The online demo needs no installation: [open OpenHome3D](https://yuyou-dev.github.io/OpenHome3D/).
+
+### For Codex users — copy one sentence (recommended)
+
+You do not need to type Git, npm, or plugin commands. Paste the sentence for
+the outcome you want into Codex; Codex will read the linked runbook, preserve
+local work, verify completion, and ask before destructive or system-level steps.
+
+**First-time full setup — app + GitHub/Community Companion:**
+
+```text
+Read and complete https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md: install and run OpenHome3D, install its Companion, verify both, and open the app in the built-in browser.
+```
+
+**OpenHome3D app only:**
+
+```text
+Install: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md and install, verify, run, and open only the OpenHome3D app; skip the Companion.
+```
+
+```text
+Upgrade: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UPGRADE.md and safely upgrade my existing OpenHome3D app, preserve local work, verify it, restart it, and open it.
+```
+
+```text
+Uninstall: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UNINSTALL.md and prepare to uninstall only the OpenHome3D app; preview the exact files and preserve my work before asking me to confirm removal.
+```
+
+**OpenHome3D Companion only — visual GitHub onboarding and community tools:**
+
+```text
+Install: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and install and verify the OpenHome3D Companion only, then tell me how to activate it in a new Codex task.
+```
+
+```text
+Upgrade: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and upgrade and verify my OpenHome3D Companion only, then tell me how to reload it in Codex.
+```
+
+```text
+Uninstall: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and prepare to uninstall the OpenHome3D Companion only; show me what will change and ask before removing its marketplace.
+```
+
+The app and Companion are independent: uninstalling one never removes the
+other. Companion publication actions still require a final preview and your
+explicit confirmation.
+
+### Developer / Fork workflow
+
 Requires **Node.js ≥ 20**.
 
 ```bash
+git clone https://github.com/yuyou-dev/OpenHome3D.git
+cd OpenHome3D
 npm install
 npm run dev        # prints a local URL (random high port, cached in .port)
 ```
 
 Open the printed URL — that's it. No configuration needed.
 
-### One-sentence setup for codex players
-
-Paste this into a codex session and let it do everything:
-
-```text
-Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md and complete it: install OpenHome3D plus its Companion plugin, verify everything, start the app, and open it in the built-in browser.
-```
-
-中文版本：
-
-```text
-请阅读并完整执行 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md：安装 OpenHome3D 和 Companion 插件、完成验证、启动程序，并在内置浏览器中打开。
-```
-
 This keeps the traditional clone/Fork workflow intact. The Companion adds guided installation, a visual GitHub newcomer guide, Discussion browsing and drafting, change summaries, and PR preparation inside Codex.
 
-Install only the Companion plugin:
+CLI controls for the Companion remain available for developers:
 
 ```bash
 codex plugin marketplace add yuyou-dev/OpenHome3D --ref main
 codex plugin add openhome3d-companion@openhome3d
+codex plugin marketplace upgrade openhome3d                       # upgrade source
+codex plugin add openhome3d-companion@openhome3d                  # install/update
+codex plugin remove openhome3d-companion@openhome3d               # uninstall plugin
+codex plugin marketplace remove openhome3d                        # optional cleanup
 ```
 
 Start a new Codex task after plugin installation, then ask: `Open the OpenHome3D community hub.`
@@ -176,5 +216,45 @@ Please keep the two style contracts intact: **cel-shaded rendering** (toon mater
 npm install
 npm run dev        # 终端会打印本地地址（随机高端口）
 ```
+
+### 交给 Codex 的一句话
+
+普通用户不需要自己输入 Git、npm 或插件命令，把对应的一句话复制给 Codex 即可：
+
+完整安装（主程序 + Companion）：
+
+```text
+请阅读并完整执行 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md：安装并运行 OpenHome3D，同时安装 Companion，完成验证，并在内置浏览器中打开程序。
+```
+
+OpenHome3D 主程序：
+
+```text
+安装：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md，只安装、验证、运行并打开 OpenHome3D 主程序，跳过 Companion。
+```
+
+```text
+升级：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UPGRADE.md，安全升级我现有的 OpenHome3D，保留本地修改，完成验证后重新运行并打开。
+```
+
+```text
+卸载：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UNINSTALL.md，准备只卸载 OpenHome3D 主程序；先展示准确目录和待处理文件、保护我的修改，再向我确认是否移除。
+```
+
+OpenHome3D Companion（GitHub 与社区支持）：
+
+```text
+安装：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，只安装并验证 OpenHome3D Companion，然后告诉我如何在新的 Codex 任务中启用它。
+```
+
+```text
+升级：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，只升级并验证 OpenHome3D Companion，然后告诉我如何让 Codex 重新加载它。
+```
+
+```text
+卸载：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，准备只卸载 OpenHome3D Companion；先展示影响范围，并在移除 marketplace 前向我确认。
+```
+
+主程序与 Companion 相互独立，卸载其中一个不会删除另一个。卸载流程会先预览范围并确认，避免误删本地作品或未提交修改。
 
 其他命令：`npm run build`（严格类型检查 + 构建）、`npm run smoke`（布局引擎 205 项测试）、`npm run smoke:ui` / `npm run audit:ui`（无头 UI 回归）。家具资产为 Kenney / KayKit 的 CC0 模型，许可见 `public/models/*/LICENSE.txt`。本项目以 MIT 协议开源。
