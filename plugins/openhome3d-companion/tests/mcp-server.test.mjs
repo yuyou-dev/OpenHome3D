@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import readline from 'node:readline'
@@ -106,9 +108,14 @@ test('MCP launcher starts when Node is absent from PATH', async (t) => {
   const pluginRoot = fileURLToPath(new URL('../', import.meta.url))
   const manifest = JSON.parse(readFileSync(new URL('../.mcp.json', import.meta.url), 'utf8'))
   const config = manifest.mcpServers.openhome3d_companion
+  const testHome = mkdtempSync(join(tmpdir(), 'openhome3d-companion-'))
+  const bundledNode = join(testHome, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node')
+  mkdirSync(join(bundledNode, '..'), { recursive: true })
+  symlinkSync(process.execPath, bundledNode)
+  t.after(() => rmSync(testHome, { recursive: true, force: true }))
   const child = spawn(config.command, config.args, {
     cwd: pluginRoot,
-    env: { ...process.env, PATH: '/usr/bin:/bin' },
+    env: { ...process.env, HOME: testHome, PATH: '/usr/bin:/bin' },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   t.after(() => child.kill())
