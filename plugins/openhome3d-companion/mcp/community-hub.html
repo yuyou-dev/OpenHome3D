@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OpenHome3D Community</title>
+  <style>
+    :root{color-scheme:light;--paper:#fffaf0;--ink:#282522;--muted:#716a62;--line:#d9d1c5;--yellow:#ffd84d;--blue:#acd8ff;--green:#bce8c3;--white:#fff;--select:#2f6bff;--shadow:4px 4px 0 var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink)}button,input,textarea,select{font:inherit;color:inherit}button{cursor:pointer}.shell{min-height:100vh;padding:18px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}.brand{display:flex;align-items:center;gap:10px}.mark{width:42px;height:42px;display:grid;place-items:center;border:2px solid var(--ink);background:var(--yellow);box-shadow:3px 3px 0 var(--ink);font-size:21px;font-weight:900}.brand h1{font-size:18px;margin:0}.brand p{font-size:12px;color:var(--muted);margin:2px 0 0}.actions{display:flex;gap:8px}.btn{border:2px solid var(--ink);background:var(--white);padding:8px 11px;font-weight:750;box-shadow:2px 2px 0 var(--ink)}.btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}.btn.primary{background:var(--yellow)}.btn.small{font-size:12px;padding:6px 8px}.tabs{display:flex;gap:7px;overflow:auto;padding:2px 2px 7px}.tab{border:2px solid var(--ink);background:var(--white);padding:8px 12px;font-weight:800;white-space:nowrap}.tab.active{background:var(--blue);box-shadow:2px 2px 0 var(--ink)}.panel{display:none}.panel.active{display:block}.status{display:flex;align-items:center;justify-content:space-between;gap:10px;border:2px solid var(--ink);padding:11px 12px;margin:8px 2px 14px;background:var(--white)}.status.ready{background:var(--green)}.status.warn{background:#fff0bd}.status strong{display:block}.status span{font-size:12px;color:#514b45}.grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(250px,.75fr);gap:14px}.card{border:2px solid var(--ink);background:var(--white);padding:14px;box-shadow:var(--shadow)}.card h2,.card h3{margin:0 0 8px}.card p{color:var(--muted);line-height:1.55}.list{display:grid;gap:9px;margin-top:12px}.topic{display:grid;grid-template-columns:1fr auto;gap:8px;padding:11px;border:2px solid var(--line);background:#fff}.topic:hover{border-color:var(--ink)}.topic a{color:var(--ink);font-weight:800;text-decoration:none}.meta{font-size:12px;color:var(--muted);margin-top:4px}.count{align-self:center;border:1px solid var(--ink);padding:3px 7px;font-size:12px;background:var(--paper)}.empty{padding:24px 10px;text-align:center;color:var(--muted)}.step-list{display:grid;gap:10px;margin:14px 0}.step{display:grid;grid-template-columns:36px 1fr;gap:11px;align-items:start;border:2px solid var(--line);padding:11px;background:#fff}.step b:first-child{width:30px;height:30px;display:grid;place-items:center;background:var(--blue);border:2px solid var(--ink)}.step strong{display:block;margin-bottom:3px}.step span{font-size:13px;color:var(--muted);line-height:1.45}.notice{border-left:5px solid var(--select);background:#eef4ff;padding:10px 12px;font-size:13px;line-height:1.5}.fields{display:grid;gap:11px}.field label{display:block;font-size:12px;font-weight:800;margin-bottom:5px}.field input,.field textarea,.field select{width:100%;border:2px solid var(--ink);background:#fff;padding:9px}.field textarea{min-height:108px;resize:vertical}.hint{font-size:12px;color:var(--muted);line-height:1.5}.bar{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px}.feedback{min-height:20px;margin-top:8px;font-size:12px;font-weight:700}.pill{display:inline-block;border:1px solid var(--ink);padding:2px 6px;background:var(--paper);font-size:11px;margin-right:5px}.summary{display:grid;gap:8px}.summary button{text-align:left}.privacy{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;margin-top:12px}@media(max-width:720px){.shell{padding:11px}.grid{grid-template-columns:1fr}.top{align-items:flex-start}.brand p{display:none}.actions .label{display:none}.card{box-shadow:3px 3px 0 var(--ink)}}
+  </style>
+  <style>.guide-image{display:block;width:100%;height:auto;border:2px solid var(--ink);margin:12px 0;background:var(--paper)}</style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="brand"><div class="mark">H3</div><div><h1>OpenHome3D Community</h1><p>浏览、讨论与贡献，不需要先学习 Git</p></div></div>
+      <div class="actions"><button class="btn small" id="githubButton"><span class="label">打开 </span>GitHub</button><button class="btn small" id="fullscreenButton">全屏</button></div>
+    </header>
+
+    <nav class="tabs" aria-label="Community sections">
+      <button class="tab active" data-tab="community">社区 Community</button>
+      <button class="tab" data-tab="contribute">参与 Contribute</button>
+      <button class="tab" data-tab="onboarding">GitHub 指南</button>
+    </nav>
+
+    <section id="authStatus" class="status warn"><div><strong>正在检查 GitHub…</strong><span>只读取 GitHub CLI 登录状态，不读取凭证文件。</span></div></section>
+
+    <section class="panel active" data-panel="community">
+      <div class="grid">
+        <article class="card"><h2>最近讨论 Recent discussions</h2><p>GitHub Discussions 是社区内容的唯一来源。你可以在这里浏览，再让 Codex 总结或起草回复。</p><div id="discussionList" class="list"><div class="empty">正在载入…</div></div></article>
+        <aside class="card"><h3>和 Codex 一起读社区</h3><div class="summary"><button class="btn" data-prompt="请总结 OpenHome3D 最近的 Discussions，并按问题、建议和展示分类。">总结最近讨论</button><button class="btn" data-prompt="请分析 OpenHome3D 最近的 Discussions，提炼重复出现的用户需求和潜在优先级。">提炼用户需求</button><button class="btn" data-prompt="请检查 OpenHome3D 最近的 Discussions，找出尚未得到维护者回应的内容。">寻找待回复内容</button></div><p class="privacy">这些按钮只把任务发送回当前 Codex 对话。任何公开回复都会先生成草稿并等待你的确认。</p></aside>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="contribute">
+      <div class="grid">
+        <article class="card"><h2>告诉社区你的想法</h2><p>不会写代码也可以参与。填写普通语言，Codex 会整理成清楚的英文草稿；发布前仍会让你确认。</p><form id="draftForm" class="fields"><div class="field"><label for="kind">我想要 I want to</label><select id="kind"><option value="idea">提出想法 Suggest an idea</option><option value="question">询问问题 Ask a question</option><option value="showcase">分享作品 Share what I made</option><option value="bug">报告问题 Report a problem</option><option value="reply">回复讨论 Reply to a discussion</option></select></div><div class="field" id="numberField" hidden><label for="number">Discussion 编号</label><input id="number" inputmode="numeric" placeholder="例如 6" /></div><div class="field"><label for="title">一句话标题 Short title</label><input id="title" maxlength="120" placeholder="例如：希望能导出房间方案" /></div><div class="field"><label for="body">详细说明 Details</label><textarea id="body" placeholder="发生了什么？你希望看到什么？如果是问题，可以写下操作步骤。"></textarea></div><div class="bar"><button class="btn primary" type="submit">交给 Codex 整理</button></div><div class="feedback" id="draftFeedback"></div></form></article>
+        <aside class="card"><h3>如果你已经改了项目</h3><p>不需要自己研究 Git 命令。让 Codex 检查当前变化、运行验证、总结成果，再准备 Fork、分支和 Pull Request。</p><button class="btn" data-prompt="请检查我当前对 OpenHome3D 的修改，运行合适的验证，先向我展示贡献摘要和 PR 草稿；不要发布，等我确认。">检查我的修改</button><div class="notice" style="margin-top:14px">提交代码仍保留标准 Fork + Pull Request 机制。Companion 只是把它变成对话式流程，不改变 GitHub 的署名和审查记录。</div></aside>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="onboarding">
+      <div class="grid">
+        <article class="card"><h2>第一次使用 GitHub</h2><p>推荐最短路径：使用邮箱创建免费的 GitHub 个人账号。Google/Apple 登录不作为主流程，避免不同账号体系和授权页面带来的额外分支。</p><div class="step-list"><div class="step"><b>1</b><div><strong>打开 GitHub 官方注册页</strong><span>只在 github.com 填写资料。OpenHome3D 和 Companion 都不会看到密码。</span></div></div><div class="step"><b>2</b><div><strong>填写邮箱、密码和用户名</strong><span>用户名会成为你在 Discussion 和 Pull Request 中的公开署名。</span></div></div><div class="step"><b>3</b><div><strong>完成验证码与邮箱验证</strong><span>验证码和验证邮件需要你本人完成，Codex 不会代填或读取。</span></div></div><div class="step"><b>4</b><div><strong>建议开启双因素认证</strong><span>按照 GitHub 页面保存恢复码，这是保护账号的重要步骤。</span></div></div><div class="step"><b>5</b><div><strong>回到 Codex 连接账号</strong><span>Codex 使用 GitHub CLI 的浏览器授权；无需把密码或令牌粘贴给项目。</span></div></div></div><div class="bar"><button class="btn" id="signupButton">打开 GitHub 注册</button><button class="btn primary" id="connectButton">我已有账号，连接</button></div></article>
+        <aside class="card"><h3>安全边界</h3><p>我们不会：</p><p><span class="pill">不收集密码</span><span class="pill">不读取验证码</span><span class="pill">不保存 Token</span></p><p>连接状态通过 <code>gh auth status</code> 检查。公开发帖、回复或 PR 始终在最终操作前再次确认。</p><div class="notice">只想体验 OpenHome3D？可以跳过整个 GitHub 流程。安装、运行和本地修改都不需要 GitHub 账号。</div></aside>
+      </div>
+    </section>
+  </main>
+  <script>
+    addEventListener('DOMContentLoaded',()=>{const steps=document.querySelector('[data-panel="onboarding"] .step-list');if(!steps)return;const image=document.createElement('img');image.className='guide-image';image.src='{{ONBOARDING_IMAGE_DATA_URI}}';image.alt='五步 GitHub 注册与 Codex 连接流程：打开官网、填写账号、验证邮箱、开启双因素认证、返回 Codex';steps.before(image)})
+  </script>
+  <script>
+    (()=>{
+      let requestId=0,connected=false,hostCanMessage=false,active={mode:'community',status:{state:'signed_out'},discussions:[],repositoryUrl:'https://github.com/yuyou-dev/OpenHome3D',discussionsUrl:'https://github.com/yuyou-dev/OpenHome3D/discussions',signupUrl:'https://github.com/signup'}
+      const pending=new Map(),$=(s)=>document.querySelector(s),$$=(s)=>[...document.querySelectorAll(s)]
+      const notify=(method,params={})=>window.parent.postMessage({jsonrpc:'2.0',method,params},'*')
+      const rpc=(method,params={},timeout=8000)=>new Promise((resolve,reject)=>{const id=++requestId,timer=setTimeout(()=>{pending.delete(id);reject(new Error('宿主响应超时'))},timeout);pending.set(id,{resolve,reject,timer});window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*')})
+      const sendSize=()=>{const main=document.querySelector('main'),rect=main.getBoundingClientRect();notify('ui/notifications/size-changed',{width:Math.ceil(rect.width),height:Math.ceil(rect.height)})}
+      async function sendMessage(text){if(connected&&hostCanMessage){try{await rpc('ui/message',{role:'user',content:[{type:'text',text}]});return}catch{}}if(window.openai?.sendFollowUpMessage){await window.openai.sendFollowUpMessage({prompt:text,scrollToBottom:false});return}throw new Error('当前宿主不支持回写对话')}
+      async function openExternal(href){if(window.openai?.openExternal){await window.openai.openExternal({href,redirectUrl:false});return}try{await rpc('ui/open-link',{url:href})}catch{await sendMessage(`请为我打开这个官方链接：${href}`)}}
+      async function fullscreen(){try{if(window.openai?.requestDisplayMode)await window.openai.requestDisplayMode({mode:'fullscreen'});else await rpc('ui/request-display-mode',{mode:'fullscreen'});$('#fullscreenButton').textContent='已展开'}catch{$('#fullscreenButton').textContent='当前窗口'}}
+      function setTab(name){$$('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));$$('.panel').forEach(el=>el.classList.toggle('active',el.dataset.panel===name));setTimeout(sendSize,30)}
+      function render(data){if(!data||typeof data!=='object'||Array.isArray(data))return;active={...active,...data};const auth=$('#authStatus'),status=active.status||{};auth.className=`status ${status.state==='ready'?'ready':'warn'}`;auth.innerHTML=status.state==='ready'?`<div><strong>GitHub 已连接${status.login?` · @${escapeHtml(status.login)}`:''}</strong><span>可以浏览社区；所有发布操作仍会在最后一步确认。</span></div>`:status.state==='missing_cli'?'<div><strong>还需要 GitHub CLI</strong><span>Codex 可以在获得你的同意后安装；浏览和本地体验不受影响。</span></div><button class="btn small" data-action="setup">开始设置</button>':'<div><strong>尚未连接 GitHub</strong><span>没有账号也没关系，指南会带你完成注册。</span></div><button class="btn small" data-action="guide">查看指南</button>';const list=$('#discussionList');if(status.state!=='ready')list.innerHTML='<div class="empty">连接 GitHub 后可在这里读取 Discussions。<br/>你仍可先填写贡献草稿。</div>';else if(!active.discussions?.length)list.innerHTML='<div class="empty">目前没有可显示的讨论。</div>';else list.innerHTML=active.discussions.map(item=>`<div class="topic"><div><a href="#" data-topic-url="${escapeHtml(item.url)}">#${item.number} · ${escapeHtml(item.title)}</a><div class="meta">${escapeHtml(item.category?.name||'Discussion')} · @${escapeHtml(item.author?.login||'unknown')} · ${formatDate(item.updatedAt)}${item.isAnswered?' · 已回答':''}</div></div><span class="count">${item.comments?.totalCount||0} 回复</span></div>`).join('');if(active.mode)setTab(active.mode);sendSize()}
+      function acceptPayload(payload){let value=payload;if(value?.result)value=value.result;if(value?.structuredContent){render(value.structuredContent);return}const content=value?.content;if(Array.isArray(content)&&content.length===1&&content[0]?.type==='text'){try{acceptPayload(JSON.parse(content[0].text));return}catch{}}if(value?.arguments){render(value.arguments);return}render(value)}
+      const escapeHtml=(value='')=>String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))
+      const formatDate=(value)=>{try{return new Intl.DateTimeFormat(document.documentElement.lang||'zh-CN',{month:'short',day:'numeric'}).format(new Date(value))}catch{return ''}}
+      $$('.tab').forEach(el=>el.addEventListener('click',()=>setTab(el.dataset.tab)))
+      document.addEventListener('click',async event=>{const action=event.target.closest('[data-action]')?.dataset.action;if(action==='guide')setTab('onboarding');if(action==='setup'){setTab('onboarding');await sendMessage('请帮我安装或检查 GitHub CLI，然后用可视化流程连接我的 GitHub 账号。不要读取任何凭证文件。')}const prompt=event.target.closest('[data-prompt]')?.dataset.prompt;if(prompt)await sendMessage(prompt);const url=event.target.closest('[data-topic-url]')?.dataset.topicUrl;if(url){event.preventDefault();await openExternal(url)}})
+      $('#kind').addEventListener('change',event=>{$('#numberField').hidden=event.target.value!=='reply';sendSize()})
+      $('#draftForm').addEventListener('submit',async event=>{event.preventDefault();const kind=$('#kind').value,title=$('#title').value.trim(),body=$('#body').value.trim(),number=$('#number').value.trim(),feedback=$('#draftFeedback');if(!body||(!title&&kind!=='reply')||(kind==='reply'&&!number)){feedback.textContent='请补充必要内容后再继续。';return}const payload={repository:'yuyou-dev/OpenHome3D',kind,...(number?{discussionNumber:number}:{}),...(title?{title}:{}),body};feedback.textContent='正在交给 Codex 整理…';try{await sendMessage(`请使用 OpenHome3D 贡献流程整理下面的社区草稿。先检查内容、选择正确的 Discussion 分类并展示最终英文预览；不要发布，等我明确确认。\nDraft (JSON): ${JSON.stringify(payload)}`);feedback.textContent='草稿已回到对话，请和 Codex 一起确认。'}catch(error){feedback.textContent=error.message}})
+      $('#signupButton').addEventListener('click',()=>openExternal(active.signupUrl))
+      $('#connectButton').addEventListener('click',()=>sendMessage('我已经有 GitHub 账号。请通过 GitHub CLI 的浏览器授权流程帮我连接账号；不要读取或要求我粘贴密码、验证码或访问令牌。'))
+      $('#githubButton').addEventListener('click',()=>openExternal(active.discussionsUrl))
+      $('#fullscreenButton').addEventListener('click',fullscreen)
+      window.addEventListener('message',event=>{if(event.source!==window.parent)return;const message=event.data;if(!message||message.jsonrpc!=='2.0')return;if(message.id!==undefined&&pending.has(message.id)){const item=pending.get(message.id);clearTimeout(item.timer);pending.delete(message.id);message.error?item.reject(new Error(message.error.message)):item.resolve(message.result);return}if(message.method==='ui/notifications/tool-input'||message.method==='ui/notifications/tool-result')acceptPayload(message.params)},{passive:true})
+      async function connect(){try{const result=await rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'openhome3d-community-hub',version:'2.0.0'},appCapabilities:{availableDisplayModes:['inline','fullscreen']}});connected=true;hostCanMessage=Boolean(result?.hostCapabilities?.message?.text);notify('ui/notifications/initialized')}catch{}acceptPayload(window.openai?.toolInput);acceptPayload(window.openai?.toolOutput)}
+      new ResizeObserver(sendSize).observe(document.querySelector('main'))
+      render(active)
+      connect()
+    })()
+  </script>
+</body>
+</html>

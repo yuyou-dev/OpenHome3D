@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenHome3D Contribute"
+  short_description: "Join discussions, report feedback, or prepare a contribution."
+  default_prompt: "Use $openhome3d-contribute to help me contribute to OpenHome3D."

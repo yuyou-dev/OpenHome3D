@@ -1,0 +1,20 @@
+{
+  "name": "openhome3d",
+  "interface": {
+    "displayName": "Openhome3d"
+  },
+  "plugins": [
+    {
+      "name": "openhome3d-companion",
+      "source": {
+        "source": "local",
+        "path": "./plugins/openhome3d-companion"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

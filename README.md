@@ -8,6 +8,7 @@
     <a href="#features">Features</a> ·
     <a href="#quick-start">Quick start</a> ·
     <a href="#scripts">Scripts</a> ·
+    <a href="#community--contributing">Community</a> ·
     <a href="#asset-licenses">Asset licenses</a> ·
     <a href="#中文简介">中文简介</a>
   </p>
@@ -54,14 +55,25 @@ Open the printed URL — that's it. No configuration needed.
 Paste this into a codex session and let it do everything:
 
 ```text
-Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md to install and verify OpenHome3D, then start its dev server and tell me the URL.
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md and complete it: install OpenHome3D plus its Companion plugin, verify everything, start the app, and open it in the built-in browser.
 ```
 
 中文版本：
 
 ```text
-请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md,安装并验证 OpenHome3D,然后启动它的 dev server 并告诉我访问地址。
+请阅读并完整执行 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md：安装 OpenHome3D 和 Companion 插件、完成验证、启动程序，并在内置浏览器中打开。
 ```
+
+This keeps the traditional clone/Fork workflow intact. The Companion adds guided installation, a visual GitHub newcomer guide, Discussion browsing and drafting, change summaries, and PR preparation inside Codex.
+
+Install only the Companion plugin:
+
+```bash
+codex plugin marketplace add yuyou-dev/OpenHome3D --ref main
+codex plugin add openhome3d-companion@openhome3d
+```
+
+Start a new Codex task after plugin installation, then ask: `Open the OpenHome3D community hub.`
 
 Manual check anytime: `npm run doctor` (Node ≥ 20 · codex CLI · `codex login status`).
 
@@ -88,6 +100,7 @@ npm run preview    # serve the production build locally
 | `npm run audit:ui` | UI overflow audit: 14 states × 2 viewports, exits 1 on any finding (regression gate) |
 | `npm run assets` | Re-download Kenney/KayKit packs and rebuild `src/assets/manifest.json` (only needed when changing models) |
 | `npm run doctor` | Environment preflight for the AI features (Node, codex CLI, login status); `--json` for machines |
+| `npm run companion:test` | Validate the Companion MCP protocol, Apps UI resource, and plugin manifest |
 | `npm run scan:public` | Leak scan of tracked files (home paths, credential shapes, private hosts) — runs in CI |
 
 ## Project structure
@@ -139,9 +152,13 @@ Both packs are CC0 — free for any use, attribution appreciated but not require
 
 The in-app brand **家居生成器 Cartoon** (logo in `brand/` and `public/brand/`) is kept intact in this open-source edition. OpenHome3D is the open-source sibling of the original Home3D / Home3D-Cartoon projects — same multi-room engine and cartoon rendering; the AI features are identical too, running through your own local codex CLI.
 
-## Contributing
+## Community & contributing
 
-Issues and PRs are welcome. Please keep the two style contracts intact: **cel-shaded rendering** (toon materials + palette colors only, 1 px ink edges) and **Neo-Brutalism UI** (cream paper, 2 px ink borders, hard shadows, candy accents) — see `AGENTS.md` for the full conventions.
+You do not need to know Git to participate. With the Companion installed, ask Codex to open the community hub: browse and summarize Discussions, follow a visual GitHub signup guide, draft a question or idea, or turn local changes into a reviewed Pull Request. Nothing is published without a final preview and your explicit confirmation.
+
+Traditional GitHub participation remains fully supported: [Discussions](https://github.com/yuyou-dev/OpenHome3D/discussions) for questions, ideas and showcases; Issues for reproducible bugs; Fork + Pull Request for code. Read [CONTRIBUTING.md](CONTRIBUTING.md) for routing, verification and authorship rules.
+
+Please keep the two style contracts intact: **cel-shaded rendering** (toon materials + palette colors only, 1 px ink edges) and **Neo-Brutalism UI** (cream paper, 2 px ink borders, hard shadows, candy accents) — see `AGENTS.md` for the full conventions.
 
 ## License
 

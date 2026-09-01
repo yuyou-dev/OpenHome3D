@@ -12,6 +12,7 @@ OpenHome3D 是「家居生成器 Cartoon」的开源版:**多房间整宅**、**
 - UI 溢出审计:`npm run audit:ui`(10 状态 × 2 视口,有 finding 退出码 1,可作回归门;`SHOT_DIR=dir` 逐状态截图)
 - dev server 用随机高端口(`.port` 缓存,`scripts/pick-port.mjs`),不要写死端口
 - AI 环境自检:`npm run doctor`(Node≥20/codex CLI/`codex login status`,`--json` 机器可读);泄密扫描 `npm run scan:public`(CI 里跑,见 `.github/workflows/ci.yml`)
+- **Companion 插件**:`plugins/openhome3d-companion/`(Skills + 本地 stdio MCP + Apps UI),marketplace 清单在 `.agents/plugins/marketplace.json`;改动后跑 `npm run companion:test` + plugin/skill validator。Apps UI 的 `ui://` 是 MCP 资源键,不是 HTTP 地址;GitHub Discussion/Issue 必须先 stage 锁定精确预览,展示后获用户即时明确确认,再用一次性 approvalId 发布
 - **GitHub Pages**:推送到 main 即自动部署(`.github/workflows/pages.yml`,构建用 `npm run build:pages` = `vite build --base=/OpenHome3D/`)。**凡是引用静态资源的 URL 必须走 `import.meta.env.BASE_URL` 前缀**(注册表 GLB 路径、品牌图),禁止手写 `/models/...`、`/brand/...` 绝对路径,否则子路径部署会 404
 
 ## 核心契约(改动会牵连多处,先读再动)

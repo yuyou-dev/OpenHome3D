@@ -1,0 +1,41 @@
+{
+  "name": "openhome3d-companion",
+  "version": "0.1.0+codex.20260901093243",
+  "description": "Install, explore, discuss, contribute to, and maintain OpenHome3D from Codex with guided workflows and an interactive community UI.",
+  "author": {
+    "name": "yuyou-dev",
+    "url": "https://github.com/yuyou-dev"
+  },
+  "homepage": "https://github.com/yuyou-dev/OpenHome3D",
+  "repository": "https://github.com/yuyou-dev/OpenHome3D",
+  "license": "MIT",
+  "keywords": [
+    "openhome3d",
+    "open-source",
+    "github",
+    "community",
+    "contributing"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "OpenHome3D Companion",
+    "shortDescription": "Explore, discuss, contribute, and maintain OpenHome3D.",
+    "longDescription": "A guided OpenHome3D workspace for newcomers and maintainers: one-conversation setup, visual GitHub onboarding, Discussion browsing and drafting, contribution review, PR preparation, and community triage.",
+    "developerName": "yuyou-dev",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "MCP Apps UI",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://yuyou-dev.github.io/OpenHome3D/",
+    "defaultPrompt": [
+      "Open the OpenHome3D community hub.",
+      "Help me install and run OpenHome3D.",
+      "Review my changes and prepare a contribution."
+    ],
+    "brandColor": "#FFD84D"
+  },
+  "mcpServers": "./.mcp.json"
+}

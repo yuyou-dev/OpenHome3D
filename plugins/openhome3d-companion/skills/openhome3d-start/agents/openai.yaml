@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenHome3D Start"
+  short_description: "Install, verify, open, and introduce the OpenHome3D project."
+  default_prompt: "Use $openhome3d-start to install and open OpenHome3D."

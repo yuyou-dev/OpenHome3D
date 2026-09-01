@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openhome3d_companion": {
+      "title": "OpenHome3D Companion",
+      "description": "Interactive OpenHome3D community, GitHub onboarding, and contribution drafting UI.",
+      "cwd": ".",
+      "command": "/bin/bash",
+      "args": ["./mcp/start-server.sh"]
+    }
+  }
+}

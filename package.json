@@ -32,7 +32,8 @@
     "audit:ui": "node scripts/audit-ui-overflow.mjs",
     "assets": "node scripts/fetch-assets.mjs && node scripts/build-manifest.mjs",
     "doctor": "node scripts/doctor.mjs",
-    "scan:public": "node scripts/public-scan.mjs"
+    "scan:public": "node scripts/public-scan.mjs",
+    "companion:test": "node --test plugins/openhome3d-companion/tests/*.test.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",

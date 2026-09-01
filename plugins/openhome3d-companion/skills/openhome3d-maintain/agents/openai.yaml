@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenHome3D Maintain"
+  short_description: "Triage the community, analyze needs, and review contributions."
+  default_prompt: "Use $openhome3d-maintain to review the OpenHome3D community inbox."

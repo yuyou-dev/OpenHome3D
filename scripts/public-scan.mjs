@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * public-scan — leak check before publishing: scan tracked files for local
- * home paths, private host references and credential-shaped strings.
+ * public-scan — leak check before publishing: scan the current working tree
+ * (tracked + untracked, excluding ignored files) for local home paths, private
+ * host references and credential-shaped strings.
  *
  *   node scripts/public-scan.mjs
  *
  * Exit 1 with a finding list when anything matches. Patterns are deliberately
  * conservative; add new ones here when a class of private data shows up.
  */
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 const PATTERNS = [
   { id: 'home-path', re: /\/Users\/[A-Za-z0-9_-]+|\/home\/[A-Za-z0-9_-]+/ },
@@ -16,15 +18,15 @@ const PATTERNS = [
   { id: 'private-host', re: /127\.0\.0\.1:8081|192\.168\.|10\.\d+\.\d+\.\d+/ },
 ]
 
-const files = execSync('git ls-files', { encoding: 'utf8' })
-  .split('\n')
+const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { encoding: 'utf8' })
+  .split('\0')
   .filter((f) => f && !/\.(png|webp|jpe?g|gif|glb|zip|ico)$/i.test(f) && f !== 'scripts/public-scan.mjs')
 
 const findings = []
 for (const f of files) {
   let text
   try {
-    text = execSync(`git show HEAD:${f} 2>/dev/null || cat "${f}"`, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    text = readFileSync(f, 'utf8')
   } catch {
     continue
   }
@@ -39,4 +41,4 @@ if (findings.length) {
   findings.forEach((f) => console.error(`  ${f.file}: ${f.pattern} — "${f.match}"`))
   process.exit(1)
 }
-console.log(`public-scan OK: ${files.length} tracked files clean`)
+console.log(`public-scan OK: ${files.length} working-tree files clean`)

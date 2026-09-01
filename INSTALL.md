@@ -6,10 +6,11 @@
 ## Expected end state (observable)
 
 - The repo is cloned and dependencies are installed
+- The `openhome3d-companion` Codex plugin is installed from this repository
 - `npm run doctor` exits 0 (Node ≥ 20, codex CLI found, `codex login status` OK)
 - The dev server is running and `http://127.0.0.1:<port>/api/ai/status` answers
   `{"ok":true,"codex":{"available":true},...}`
-- The user knows the URL to open
+- The app is open in the built-in browser when available, or the user has its URL
 
 Already-correct counts as success at every step — rerun safely.
 
@@ -20,6 +21,7 @@ Already-correct counts as success at every step — rerun safely.
 - Never pipe downloaded content into a shell
 - Ask before installing system-level software
 - Do not kill unrelated dev servers; if the cached port is taken, pick another
+- OpenHome3D installation and local use do not require a GitHub account; GitHub setup is deferred until the user first wants to post or submit
 
 ## Phases
 
@@ -47,7 +49,35 @@ npm install
 
 Already inside an existing clone → `git pull --ff-only` + `npm install`.
 
-### 3. Doctor
+### 3. Install the Companion plugin
+
+Inspect configured marketplaces first:
+
+```bash
+codex plugin marketplace list
+```
+
+If `openhome3d` is absent:
+
+```bash
+codex plugin marketplace add yuyou-dev/OpenHome3D --ref main
+```
+
+If it is already present, refresh it instead:
+
+```bash
+codex plugin marketplace upgrade openhome3d
+```
+
+Then install or update the plugin:
+
+```bash
+codex plugin add openhome3d-companion@openhome3d
+```
+
+Plugin Skills and MCP tools become available in a new Codex task. Continue the current installation now; do not force the user to restart before the app is running.
+
+### 4. Doctor
 
 ```bash
 npm run doctor
@@ -57,7 +87,11 @@ npm run doctor
 Expected: `verdict: "ready"`, exit 0. Fix what it flags (it prints a hint per
 failed check) and rerun until ready.
 
-### 4. Start the dev server
+### 5. Build and start the dev server
+
+```bash
+npm run build
+```
 
 ```bash
 npm run dev   # prints http://127.0.0.1:<port> (random high port, cached in .port)
@@ -65,16 +99,16 @@ npm run dev   # prints http://127.0.0.1:<port> (random high port, cached in .por
 
 Run it in the background and keep it alive for the user.
 
-### 5. Verify end to end
+### 6. Verify end to end
 
 ```bash
 curl -s http://127.0.0.1:<port>/api/ai/status
 # expect {"ok":true,"codex":{"available":true}, ...}
 ```
 
-Then open the page (`curl -s -o /dev/null -w '%{http_code}' <url>` → 200).
+Then verify the page (`curl -s -o /dev/null -w '%{http_code}' <url>` → 200) and open it in Codex's in-app browser when available. If this client cannot open a browser, return the clickable loopback URL.
 
-### 6. Hand off
+### 7. Hand off
 
 Tell the user:
 
@@ -82,6 +116,7 @@ Tell the user:
 - the two AI entry points: 整宅 Home tab →「导入户型图 Import plan」(floor-plan
   recognition) and the「AI 渲染」button in the top bar (image repaint)
 - the first render/recognition takes ~1–2 minutes (codex image_gen / exec)
+- the Companion is ready in a new task; the user can say `Open the OpenHome3D community hub.` to browse Discussions, get GitHub onboarding, or prepare a contribution
 
 ## Troubleshooting
 
@@ -89,3 +124,4 @@ Tell the user:
 - AI buttons warn about "Local-only" on the online demo → expected: the AI runs
   through your local codex CLI; the GitHub Pages demo has no AI backend
 - anything else → `npm run doctor -- --json` and read the failing check's hint
+- Companion not visible after installation → start a new Codex task, then run `codex plugin list` if it is still missing
