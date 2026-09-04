@@ -1,260 +1,324 @@
 <div align="center">
   <img src="public/brand/logo-static.png" alt="OpenHome3D logo" width="72" />
   <h1>OpenHome3D</h1>
-  <p><strong>A cartoon-style 3D home designer that runs entirely in your browser.</strong></p>
-  <p><a href="https://yuyou-dev.github.io/OpenHome3D/"><strong>▶ Live demo — yuyou-dev.github.io/OpenHome3D</strong></a></p>
-  <p>Type a seed, get a fully furnished home in one click — rendered in flat cel-shaded colors with ink outlines, wrapped in a Neo-Brutalism UI. No backend, no accounts, no API keys. Optional local AI (floor-plan import + photoreal repaint) via your own codex CLI.</p>
+  <p><strong>Design a playful 3D home in the browser — then let local Codex AI understand or repaint it.</strong></p>
   <p>
-    <a href="#features">Features</a> ·
-    <a href="#quick-start">Quick start</a> ·
-    <a href="#scripts">Scripts</a> ·
-    <a href="#community--contributing">Community</a> ·
-    <a href="#asset-licenses">Asset licenses</a> ·
-    <a href="#中文简介">中文简介</a>
+    <a href="https://yuyou-dev.github.io/OpenHome3D/"><strong>▶ Try the browser demo</strong></a>
+    · <a href="#install-with-codex-recommended">Install with Codex</a>
+    · <a href="#community--pull-requests">Contribute</a>
+    · <a href="#中文使用指南">中文</a>
   </p>
+  <p><sub>Open source · MIT · No OpenHome3D account · No API key · Optional AI runs through your own local Codex CLI</sub></p>
 </div>
 
 ---
 
-![OpenHome3D main view](docs/screenshot-main.png)
+OpenHome3D is the open-source edition of **家居生成器 Cartoon (Home Generator Cartoon)**. Start from a studio, one-bedroom, or two-bedroom home; let the seeded layout engine furnish it; then edit rooms, openings, structure, and furniture in a cel-shaded 3D diorama.
 
-## What is this?
+The [online demo](https://yuyou-dev.github.io/OpenHome3D/) runs entirely in the browser. Install the project locally to unlock the new Codex AI workflow.
 
-OpenHome3D is the open-source edition of **家居生成器 Cartoon (Home Generator Cartoon)** — a DIY home-design toy. A procedural engine arranges furniture from a seed you type, for a single room or a whole home (studio / 1-bedroom / 2-bedroom templates); you then swap models, upload your own, drag pieces around on a snap grid, and tune the structure itself (room sizes, wall height, doors and windows, interior openings and balcony parapets) — including a top-down structure editor for dragging and resizing rooms.
+## ✨ AI milestone: floor plan in, finished room out
 
-Two **optional AI superpowers** run through your own local [codex CLI](https://github.com/openai/codex) (ChatGPT login — no API key): import a floor-plan photo and get the whole home back, and repaint the cartoon scene into a photorealistic interior shot. They only exist when the app runs on your machine — the live demo stays purely client-side and simply badges those entries as local-only.
+The latest milestone adds a real AI layer to OpenHome3D, not just another editor control. Your own local [Codex CLI](https://github.com/openai/codex) gives the app two optional superpowers:
 
-Everything renders in a **stylized cel-shaded look**: flat toon colors, 4-step light bands, 1 px ink outlines, and soft lavender-tinted shadows — like a playable toy diorama.
+1. **Understand a floor plan** — import a PNG or JPEG; Codex recognizes rooms, doors, windows, connected openings, and balconies, then OpenHome3D builds an editable multi-room home.
+2. **Repaint the 3D scene** — turn the current cartoon composition into a photorealistic, cinematic, anime, cyberpunk, watercolor, clay, or cel-style image, while keeping the room layout and camera framing as the guide.
 
-## Features
+| Editable OpenHome3D scene | Example local AI repaint |
+| --- | --- |
+| ![Editable cartoon room in OpenHome3D](docs/screenshot-main.png) | ![Photorealistic AI repaint of the same room](docs/ai-repaint-photoreal.webp) |
 
-- **Seeded whole-home generation** — 8 room types (studio, living room, bedroom, kitchen, bathroom, office, dining, balcony) × 3 home templates (studio / 1br / 2br). Same seed + same template ⇒ same layout, every time.
-- **Cel-shaded 3D** — `MeshToonMaterial` with a shared 4-step gradient map, edge outlines (`EdgesGeometry` with an inverted-hull fallback for smooth meshes), PCF soft shadows and purple-tinted ambient occlusion. Isometric & perspective cameras, 4 iso corner presets + top view.
-- **337 furniture models, all local** — Kenney Furniture Kit + KayKit Bits (CC0), plus 18 built-in parametric pieces (resize seats/arms/radius live). Models ship in `public/models/`; nothing is fetched from the network at runtime.
-- **A coherent candy palette** — GLB assets keep their original flat colors; parametric furniture is colored from one curated palette (`src/models/palette.ts`), so everything looks like one toy set.
-- **Real editing** — click to select, drag with 5 cm grid snap (Alt = off-grid), arrow-key nudge, A/E rotate ±15°, right-drag / Shift+left-drag / pan-mode toggle for camera panning, duplicate / delete / swap model / scale.
-- **Upload your own models** — `.glb .gltf .obj .stl .ply .dae`, converted to GLB in the browser and stored in IndexedDB.
-- **Home structure control** — Home/Room sidebar tabs: per-room type/size/partition, a room list with add/remove, doors & windows on exterior walls, interior doors and full-height openings (打通) on shared walls, balcony parapets, wall height, and cutaway walls that follow the camera. The HomeEditor overlay (Home tab) drags and resizes rooms in a top-down view.
-- **Floor-plan import (local AI)** — drop a floor-plan image on the Home tab; the local codex CLI recognizes rooms/doors/windows/open-ups/balconies and builds the whole multi-room home (geometry auto-repaired). The original plan stays as a corner minimap.
-- **AI repaint (local AI)** — one click repaints the cartoon scene into a photorealistic interior photo (or cinematic / anime / cyberpunk / watercolor / claymation / cel presets) via codex `image_gen`, with swipe compare, history and furniture reference photos.
-- **Neo-Brutalism UI** — cream paper, thick ink borders, hard shadows, candy buttons; bilingual labels (中文 + English).
+The image on the right is an example repaint from the scene on the left. Generative images can reinterpret small details; the editable 3D scene always remains your source of truth.
 
-## Quick start
+### Why local Codex?
 
-The online demo needs no installation: [open OpenHome3D](https://yuyou-dev.github.io/OpenHome3D/).
+- OpenHome3D never asks for an API key or reads your Codex credential files.
+- Codex manages its own ChatGPT login and runs only when you request floor-plan understanding or a repaint.
+- The static GitHub Pages demo stays backend-free. AI buttons explain that local installation is required instead of silently failing.
 
-### For Codex users — copy one sentence (recommended)
+## What you can make
 
-You do not need to type Git, npm, or plugin commands. Paste the sentence for
-the outcome you want into Codex; Codex will read the linked runbook, preserve
-local work, verify completion, and ask before destructive or system-level steps.
+- **A furnished whole home in one click** — 8 room types and 3 home templates; the same seed recreates the same layout.
+- **An editable floor plan in 3D** — drag and resize rooms from the top view; add doors, windows, full-height openings, balcony parapets, and cutaway walls.
+- **A room that feels like yours** — browse 337 bundled CC0 models, tune 18 parametric pieces, upload your own model, then move, rotate, duplicate, resize, or swap furniture.
+- **A stylized presentation** — flat cel-shaded colors, ink outlines, soft shadows, isometric and perspective cameras, plus exportable project files.
+- **An AI-assisted concept image** — import a plan or repaint the designed room locally through Codex.
 
-**First-time full setup — app + GitHub/Community Companion:**
+## Use OpenHome3D
 
-```text
-Read and complete https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md: install and run OpenHome3D, install its Companion, verify both, and open the app in the built-in browser.
-```
+### Try it now — no installation
 
-**OpenHome3D app only:**
+Open the [live browser demo](https://yuyou-dev.github.io/OpenHome3D/). It includes the complete manual designer; local AI features are intentionally unavailable on the static site.
 
-```text
-Install: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md and install, verify, run, and open only the OpenHome3D app; skip the Companion.
-```
+### Install with Codex (recommended)
 
-```text
-Upgrade: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UPGRADE.md and safely upgrade my existing OpenHome3D app, preserve local work, verify it, restart it, and open it.
-```
+These are instructions **for the Codex desktop app**, not terminal commands:
 
-```text
-Uninstall: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UNINSTALL.md and prepare to uninstall only the OpenHome3D app; preview the exact files and preserve my work before asking me to confirm removal.
-```
+1. Open Codex Desktop and create a new task.
+2. Copy only the sentence inside the code block for the outcome you want.
+3. Paste it into the Codex chat box and send it. Codex will follow the linked runbook, preserve existing work, verify the result, and ask before destructive or system-level actions.
 
-**OpenHome3D Companion only — visual GitHub onboarding and community tools:**
+#### App + GitHub/Community Companion
+
+Best for most contributors: installs the designer and the guided community/PR tools.
 
 ```text
-Install: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and install and verify the OpenHome3D Companion only, then tell me how to activate it in a new Codex task.
+Read and complete https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md to set up and run OpenHome3D, set up its Companion, verify both, and open the app in the built-in browser.
 ```
+
+#### OpenHome3D app only
 
 ```text
-Upgrade: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and upgrade and verify my OpenHome3D Companion only, then tell me how to reload it in Codex.
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md and set up, verify, run, and open only the OpenHome3D app; skip the Companion.
 ```
+
+#### Update an existing installation
 
 ```text
-Uninstall: Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and prepare to uninstall the OpenHome3D Companion only; show me what will change and ask before removing its marketplace.
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UPGRADE.md and safely update my existing OpenHome3D app, preserve local work, verify it, restart it, and open it.
 ```
 
-The app and Companion are independent: uninstalling one never removes the
-other. Companion publication actions still require a final preview and your
-explicit confirmation.
+#### Remove the app
 
-### Developer / Fork workflow
+```text
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UNINSTALL.md and prepare to remove only the OpenHome3D app; preview the exact files and preserve my work before asking me to confirm removal.
+```
 
-Requires **Node.js ≥ 20**.
+#### Set up the Companion only
+
+```text
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and set up and verify the OpenHome3D Companion only, then explain how to activate it in a new Codex task.
+```
+
+#### Update the Companion only
+
+```text
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and safely update and verify only my OpenHome3D Companion, then explain how to reload it in Codex.
+```
+
+#### Remove the Companion only
+
+```text
+Read https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md and prepare to remove only the OpenHome3D Companion; show me what will change and ask before removing its marketplace.
+```
+
+The app and Companion are independent; removing one never removes the other.
+
+After installing or updating the Companion, fully restart Codex Desktop, create a new task, then attach **OpenHome3D Companion** from **Sources → Use plugins**. Ordinary prompt text alone does not attach a plugin.
+
+### Install manually
+
+Requires [Node.js 20 or newer](https://nodejs.org/).
 
 ```bash
 git clone https://github.com/yuyou-dev/OpenHome3D.git
 cd OpenHome3D
 npm install
-npm run dev        # prints a local URL (random high port, cached in .port)
+npm run dev
 ```
 
-Open the printed URL — that's it. No configuration needed.
+Open the local URL printed by the terminal. No configuration is required for the 3D designer.
 
-This keeps the traditional clone/Fork workflow intact. The Companion adds guided installation, a visual GitHub newcomer guide, Discussion browsing and drafting, change summaries, and PR preparation inside Codex.
-
-CLI controls for the Companion remain available for developers:
+To use the optional AI features, also install and sign in to Codex CLI, then run the project check:
 
 ```bash
-codex plugin marketplace add yuyou-dev/OpenHome3D --ref main
-codex plugin add openhome3d-companion@openhome3d
-codex plugin marketplace upgrade openhome3d                       # upgrade source
-codex plugin add openhome3d-companion@openhome3d                  # install/update
-codex plugin remove openhome3d-companion@openhome3d               # uninstall plugin
-codex plugin marketplace remove openhome3d                        # optional cleanup
+npm install -g @openai/codex
+codex login
+npm run doctor
 ```
 
-Start a new Codex task after plugin installation, then ask: `Open the OpenHome3D community hub.`
+`npm run doctor` checks Node, Codex CLI, and `codex login status`; it never reads credential files. If Codex is unavailable, the browser designer still works.
 
-Manual check anytime: `npm run doctor` (Node ≥ 20 · codex CLI · `codex login status`).
+## A five-minute first project
 
-```bash
-npm run build      # type-check (strict) + production build → dist/
-npm run preview    # serve the production build locally
+1. Choose **Home** and start with Studio, 1BR, or 2BR — or import a floor-plan image when running locally with Codex.
+2. Open **Room** to change the active room type, dimensions, or partition height.
+3. Press **Shuffle** until the seeded furnishing feels close, then drag and edit individual pieces.
+4. Use the top toolbar to switch view, projection, pan mode, cutaway walls, windows, floor slab, and furniture visibility.
+5. Save with **Export**. When local AI is available, open **AI Render** to make and compare a concept image.
+
+Helpful controls: arrow keys nudge the selected item; `A` / `E` rotate it; `Alt` temporarily disables grid snap; right-drag or `Shift` + left-drag pans the camera.
+
+## Community & Pull Requests
+
+You do not need to know Git to participate.
+
+### Use the Companion
+
+The optional **OpenHome3D Companion** turns community participation into a guided Codex workflow. Ask it to open the community hub to:
+
+- browse and summarize GitHub Discussions;
+- draft a question, idea, showcase, or bug report in plain language;
+- inspect your local changes, run the right checks, and prepare a Pull Request;
+- preview every public post or PR before anything is published.
+
+After attaching the plugin in a new Codex task, say:
+
+```text
+Open the OpenHome3D community hub.
 ```
 
-## Screenshots
+Already changed the project? Ask:
 
-| Model browser | Editing (selected piece) |
+```text
+Check my current OpenHome3D changes, run the appropriate verification, and show me a contribution summary and Pull Request draft. Do not publish anything until I confirm.
+```
+
+### Use the traditional GitHub flow
+
+1. Fork the repository and create a focused branch.
+2. Make one coherent change and preserve the cel-shaded rendering and Neo-Brutalism UI conventions.
+3. Run `npm run build`; run `npm run smoke` for layout changes and `npm run companion:test` for Companion changes.
+4. Open a Pull Request that explains the user-visible outcome and how you verified it.
+
+Use [Discussions](https://github.com/yuyou-dev/OpenHome3D/discussions) for questions, ideas, and showcases; use [Issues](https://github.com/yuyou-dev/OpenHome3D/issues) for reproducible bugs. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full routing, verification, and authorship guide.
+
+## More screenshots
+
+| Furniture browser | Editing a selected piece |
 | --- | --- |
-| ![Model browser](docs/screenshot-browser.png) | ![Selection](docs/screenshot-select.png) |
+| ![OpenHome3D furniture browser](docs/screenshot-browser.png) | ![Editing a selected furniture piece](docs/screenshot-select.png) |
 
-## Scripts
+## Maintainer commands
 
-| Command | What it does |
+Most users only need `npm run dev`. Maintainers may also use:
+
+| Command | Purpose |
 | --- | --- |
-| `npm run dev` | Vite dev server on a random high port |
-| `npm run build` | `tsc` (strict, `noUnusedLocals`) + `vite build` |
-| `npm run preview` | Serve `dist/` |
-| `npm run smoke` | 205 layout-engine checks: determinism, in-bounds, collisions, door-zone avoidance, templates, plan-import conversion, gap/parapet wall segments |
-| `npm run smoke:ui` | Headless-Chrome screenshot + console-error check (needs `APP_URL`; `CHROME_PATH` to override Chrome location) |
-| `npm run audit:ui` | UI overflow audit: 14 states × 2 viewports, exits 1 on any finding (regression gate) |
-| `npm run assets` | Re-download Kenney/KayKit packs and rebuild `src/assets/manifest.json` (only needed when changing models) |
-| `npm run doctor` | Environment preflight for the AI features (Node, codex CLI, login status); `--json` for machines |
-| `npm run companion:test` | Validate the Companion MCP protocol, Apps UI resource, and plugin manifest |
-| `npm run scan:public` | Leak scan of tracked files (home paths, credential shapes, private hosts) — runs in CI |
+| `npm run build` | Strict type-check and production build |
+| `npm run smoke` | Layout, collision, opening, template, and import regression checks |
+| `npm run smoke:ui` | Browser screenshot and console-error smoke test |
+| `npm run audit:ui` | Desktop/mobile overflow audit |
+| `npm run doctor` | Local AI environment check |
+| `npm run companion:test` | Companion manifest, skills, MCP, and Apps UI checks |
+| `npm run scan:public` | Scan tracked files for accidental private data |
 
-## Project structure
+Implementation contracts live in [AGENTS.md](AGENTS.md). The app uses React, TypeScript, three.js / React Three Fiber, Zustand, and Vite; those details are intentionally kept out of the getting-started path.
 
-```
-index.html              # entry (title / favicon)
-brand/                  # brand source assets (public/brand is the served copy)
-public/
-  brand/                # logos (sidebar logo, favicon)
-  models/               # 337 CC0 GLBs + per-pack LICENSE.txt
-scripts/
-  fetch-assets.mjs      # download Kenney/KayKit packs & convert to GLB (idempotent)
-  build-manifest.mjs    # scan GLBs → src/assets/manifest.json (category + measured size)
-  size-rules.mjs        # per-model real-world size rules (single source of truth)
-  audit-bbox.mjs        # bounding-box audit (used when tuning size rules)
-  pick-port.mjs         # random high dev port
-  ai-api.mjs            # dev-server middleware: /api/ai/status + understand (plan recognition) + render (image_gen) via the local codex CLI
-  doctor.mjs            # AI environment preflight (npm run doctor)
-  public-scan.mjs       # leak scan for tracked files (npm run scan:public, runs in CI)
-  smoke-gen.ts          # layout engine smoke tests (npm run smoke; fixtures in fixtures/)
-  smoke-ui.mjs          # headless screenshot smoke (npm run smoke:ui)
-  audit-ui-overflow.mjs # UI overflow audit (npm run audit:ui)
-src/
-  assets/manifest.json  # generated, do not edit by hand
-  state/store.ts        # zustand store: multi-room home/furniture/selection/uploads (persist openhome3d v2)
-  state/home.ts         # room & opening data model + pure helpers (AABB / shared spans / door zones / shell)
-  models/palette.ts     # the curated palette — the only place colors may come from
-  models/registry.ts    # unified model registry (parametric + manifest GLBs + uploads)
-  models/parametric/    # 18 parametric furniture components
-  lib/toon.ts           # cel shading: shared gradient map + GLB material conversion
-  gen/                  # room types / layout engine / wall derivation / home templates / plan-import converter
-  three/                # scene, shell, HomeEditor top-down editor, camera, lights, effects, interaction, runtime bus
-  ui/                   # sidebar (Home/Room tabs) / HomeTab / PlanMinimap / selection panel / top bar / status bar / modals (incl. AI render) / labels
-  lib/                  # prng / geometry / thumbnails / AI client + style presets / plan-image store
-```
+## Assets, brand & license
 
-## Tech stack
+The 337 bundled furniture models come from **Kenney Furniture Kit** and **KayKit Furniture / Restaurant Bits**. Both are CC0 and may be used freely; license copies are included under `public/models/*/LICENSE.txt`.
 
-React 19 · three.js (`@react-three/fiber` + `drei` + `postprocessing`) · zustand (with persist) · Vite 7 · TypeScript (strict) · idb-keyval (IndexedDB for uploads).
-
-## Asset licenses
-
-- **Kenney — Furniture Kit** (CC0): `public/models/kenney/LICENSE.txt`
-- **KayKit — Furniture & Restaurant Bits** (CC0): `public/models/kaykit-furniture/LICENSE.txt`, `public/models/kaykit-restaurant/LICENSE.txt`
-
-Both packs are CC0 — free for any use, attribution appreciated but not required. Brand labels in the UI name the real asset sources (BUILT-IN / KENNEY / KAYKIT / MY UPLOADS); no furniture-vendor trademarks are used.
-
-## Brand
-
-The in-app brand **家居生成器 Cartoon** (logo in `brand/` and `public/brand/`) is kept intact in this open-source edition. OpenHome3D is the open-source sibling of the original Home3D / Home3D-Cartoon projects — same multi-room engine and cartoon rendering; the AI features are identical too, running through your own local codex CLI.
-
-## Community & contributing
-
-You do not need to know Git to participate. With the Companion installed, ask Codex to open the community hub: browse and summarize Discussions, follow a visual GitHub signup guide, draft a question or idea, or turn local changes into a reviewed Pull Request. Nothing is published without a final preview and your explicit confirmation.
-
-Traditional GitHub participation remains fully supported: [Discussions](https://github.com/yuyou-dev/OpenHome3D/discussions) for questions, ideas and showcases; Issues for reproducible bugs; Fork + Pull Request for code. Read [CONTRIBUTING.md](CONTRIBUTING.md) for routing, verification and authorship rules.
-
-Please keep the two style contracts intact: **cel-shaded rendering** (toon materials + palette colors only, 1 px ink edges) and **Neo-Brutalism UI** (cream paper, 2 px ink borders, hard shadows, candy accents) — see `AGENTS.md` for the full conventions.
-
-## License
-
-[MIT](LICENSE) © 2026 yuyou-dev. Third-party assets remain under their own licenses (CC0, see above).
+The in-app **家居生成器 Cartoon** brand remains intact in this open-source edition. OpenHome3D itself is released under the [MIT License](LICENSE) © 2026 yuyou-dev; third-party assets remain under their own licenses.
 
 ---
 
-## 中文简介
+## 中文使用指南
 
-**OpenHome3D** 是「家居生成器 Cartoon」的开源版：一个完全跑在浏览器里的卡通风 3D 家装小工具。输入种子即可一键生成带全套家具的整宅（8 种房型 × 单间/一居/两居 3 档模板）， cel-shaded 平涂卡通渲染 + Neo-Brutalism 界面；支持换模、上传自己的模型（.glb/.gltf/.obj/.stl/.ply/.dae）、5cm 网格拖拽、方向键微调、A/E 旋转、右键/Shift+左键/平移模式平移，面宽/进深/墙高/隔墙/门窗编辑（含内墙打通、阳台护栏）与 HomeEditor 顶视拖拽改房间。**无任何后端、账号或 API key**;可选本机 AI(户型图导入 + 写实重绘)走你自己的 codex CLI(ChatGPT 登录态)。
+**OpenHome3D** 是「家居生成器 Cartoon」的开源版：一个可以在浏览器里搭整宅、改户型、摆家具的卡通风 3D 家装工具。在线 Demo 无需安装、没有账号体系；本地安装后，还可以通过你自己的 Codex CLI 使用 AI 户型识别和效果图重绘，不需要 API key。
 
-快速开始（需要 Node.js ≥ 20）：
+### ✨ 这次的重要里程碑：Codex AI
+
+这次更新不是在编辑器里再加一个小按钮，而是为 OpenHome3D 补上了一条完整的 AI 工作流：
+
+1. **看懂户型图**：上传 PNG/JPEG 户型图，Codex 会识别房间、门窗、内墙打通和阳台；OpenHome3D 再把结果修复并转换成可以继续拖拽、改尺寸、摆家具的 3D 整宅。
+2. **把卡通方案重绘成效果图**：完成 3D 布局后，可以生成写实、电影感、动画、赛博霓虹、水彩、粘土或赛璐璐风格的图片，并用滑动对比查看 3D 原图与生成结果。
+
+AI 只在本机开发服务器中运行。OpenHome3D 不读取 Codex 登录文件，也不要求你填写 API key；在线 Demo 仍然保持纯静态、纯浏览器运行。
+
+### 三种开始方式
+
+- **只想体验设计器**：直接打开[在线 Demo](https://yuyou-dev.github.io/OpenHome3D/)，不需要安装。
+- **希望使用 AI 功能**：在本机安装项目，并确保 Codex CLI 已登录。
+- **希望参与社区或提交 PR**：同时安装 OpenHome3D Companion，让 Codex 带你浏览讨论、整理改动和准备 PR。
+
+### 在 Codex 里一句话安装（推荐）
+
+下面代码框里的内容不是终端命令，而是要发给 **Codex Desktop** 的任务说明：
+
+1. 打开 Codex Desktop，新建一个任务。
+2. 选择你需要的场景，只复制代码框里面的一整句话。
+3. 粘贴到 Codex 对话输入框并发送。Codex 会读取对应操作手册、保护已有修改、执行验证，并在删除或系统级安装前向你确认。
+
+#### 完整安装：主程序 + Companion
+
+```text
+请阅读并完整执行 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md，安装并运行 OpenHome3D，同时安装 Companion，完成两者的验证，并在内置浏览器中打开程序。
+```
+
+#### 只安装主程序
+
+```text
+请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md，只安装、验证、运行并打开 OpenHome3D 主程序，跳过 Companion。
+```
+
+#### 升级已有主程序
+
+```text
+请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UPGRADE.md，安全升级我现有的 OpenHome3D，保留本地修改，完成验证后重新运行并打开。
+```
+
+#### 准备卸载主程序
+
+```text
+请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UNINSTALL.md，准备只卸载 OpenHome3D 主程序；先展示准确目录和待处理文件、保护我的修改，再向我确认是否移除。
+```
+
+#### 只安装 Companion
+
+```text
+请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，只安装并验证 OpenHome3D Companion，然后说明如何在新的 Codex 任务中启用它。
+```
+
+#### 只升级 Companion
+
+```text
+请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，只安全升级并验证我现有的 OpenHome3D Companion，然后说明如何让 Codex 重新加载它。
+```
+
+#### 只卸载 Companion
+
+```text
+请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，准备只卸载 OpenHome3D Companion；先展示会发生的变化，并在移除 marketplace 前向我确认。
+```
+
+安装或升级 Companion 后，需要完全退出并重新打开 Codex Desktop；新建任务后，从 **Sources → Use plugins** 选择 **OpenHome3D Companion**。仅在输入框里写插件名字并不会自动加载插件。
+
+### 手动安装
+
+需要 Node.js 20 或更高版本：
 
 ```bash
+git clone https://github.com/yuyou-dev/OpenHome3D.git
+cd OpenHome3D
 npm install
-npm run dev        # 终端会打印本地地址（随机高端口）
+npm run dev
 ```
 
-### 交给 Codex 的一句话
+终端会打印一个本地地址，打开它即可使用完整 3D 设计器。要启用可选 AI 功能，再执行：
 
-普通用户不需要自己输入 Git、npm 或插件命令，把对应的一句话复制给 Codex 即可：
+```bash
+npm install -g @openai/codex
+codex login
+npm run doctor
+```
 
-完整安装（主程序 + Companion）：
+如果 Codex CLI 暂时不可用，只会影响 AI 户型识别和 AI 重绘，不影响普通 3D 编辑。
+
+### 第一次使用
+
+1. 在「整宅 Home」里选择单间、一居或两居模板；本机 AI 可用时也可以直接导入户型图。
+2. 在「房间 Room」里调整当前房间类型、面宽、进深和隔墙高度。
+3. 点击「换一换 Shuffle」重新布置整间房，再选中单件家具进行移动、旋转、缩放、复制或换模。
+4. 在顶栏切换视角、轴测/透视、平移模式，以及墙体剖切、门窗、楼板和家具显示。
+5. 用「导出 Export」保存项目；需要概念效果图时，打开「AI 渲染」生成并对比结果。
+
+### 不会 Git，也可以参与和提交 PR
+
+OpenHome3D Companion 是本项目配套的 Codex 插件。它可以打开可视化社区中心，帮你阅读 Discussions、把中文想法整理成英文草稿、检查本地修改、运行合适的验证，并准备标准 Pull Request。任何公开发布都会先给你看最终预览，并等待你的明确确认。
+
+启用 Companion 后，可以直接对 Codex 说：
 
 ```text
-请阅读并完整执行 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md：安装并运行 OpenHome3D，同时安装 Companion，完成验证，并在内置浏览器中打开程序。
+打开 OpenHome3D 社区中心。
 ```
 
-OpenHome3D 主程序：
+如果你已经改好了代码，可以说：
 
 ```text
-安装：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/INSTALL.md，只安装、验证、运行并打开 OpenHome3D 主程序，跳过 Companion。
+请检查我当前对 OpenHome3D 的修改，运行合适的验证，先向我展示贡献摘要和 PR 草稿；不要发布，等我确认。
 ```
 
-```text
-升级：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UPGRADE.md，安全升级我现有的 OpenHome3D，保留本地修改，完成验证后重新运行并打开。
-```
+传统 GitHub 流程也完全支持：Fork 仓库 → 新建分支 → 完成一个聚焦的改动 → 运行 `npm run build` 和相关测试 → 提交 Pull Request。问题、想法和作品展示请优先发到 [Discussions](https://github.com/yuyou-dev/OpenHome3D/discussions)，可复现 Bug 请发到 [Issues](https://github.com/yuyou-dev/OpenHome3D/issues)。详细规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-```text
-卸载：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/UNINSTALL.md，准备只卸载 OpenHome3D 主程序；先展示准确目录和待处理文件、保护我的修改，再向我确认是否移除。
-```
-
-OpenHome3D Companion（GitHub 与社区支持）：
-
-```text
-安装：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，只安装并验证 OpenHome3D Companion，然后告诉我如何在新的 Codex 任务中启用它。
-```
-
-```text
-升级：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，只升级并验证 OpenHome3D Companion，然后告诉我如何让 Codex 重新加载它。
-```
-
-```text
-卸载：请阅读 https://raw.githubusercontent.com/yuyou-dev/OpenHome3D/main/plugins/openhome3d-companion/LIFECYCLE.md，准备只卸载 OpenHome3D Companion；先展示影响范围，并在移除 marketplace 前向我确认。
-```
-
-主程序与 Companion 相互独立，卸载其中一个不会删除另一个。卸载流程会先预览范围并确认，避免误删本地作品或未提交修改。
-
-其他命令：`npm run build`（严格类型检查 + 构建）、`npm run smoke`（布局引擎 205 项测试）、`npm run smoke:ui` / `npm run audit:ui`（无头 UI 回归）。家具资产为 Kenney / KayKit 的 CC0 模型，许可见 `public/models/*/LICENSE.txt`。本项目以 MIT 协议开源。
+本项目以 [MIT 协议](LICENSE)开源；Kenney / KayKit 家具资产为 CC0。
