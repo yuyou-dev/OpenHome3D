@@ -14,6 +14,7 @@ const PLAN_TABS: { value: PlanTab; label: string }[] = [
 
 /** 房间 Room tab: edits the ACTIVE room's contents (structure/openings live in the Home tab). */
 function RoomTab() {
+  const architecture = useStore(s=>s.home.architecture)
   const room = useStore((s) => s.home.rooms.find((r) => r.id === s.activeRoomId) ?? s.home.rooms[0])
   const setRoomType = useStore((s) => s.setRoomType)
   const setRoomRect = useStore((s) => s.setRoomRect)
@@ -27,6 +28,12 @@ function RoomTab() {
   const partitionHeight = room.partitionHeight
   const partitionUnit =
     partitionHeight === 0 ? '无 none' : partitionHeight === wallHeight ? '通高 full' : 'm'
+
+  if (architecture) return <>
+    <p className="caption">{room.name} · 精确轮廓 Precision outline</p>
+    <p className="caption">结构参数请在整宅面板编辑；家具可直接选择、移动和替换。Edit structure in Home; select furniture to move or replace.</p>
+    <div className="btn-row"><GhostButton onClick={()=>setPlanTab('home')}>结构参数 Structure</GhostButton><GhostButton onClick={()=>reshuffleFurniture()}>换一换 Shuffle</GhostButton></div>
+  </>
 
   return (
     <>

@@ -1,3 +1,4 @@
+import { importArchitecturalPlan } from './importArchitecture'
 /**
  * Floor-plan import: convert the AI-recognized PlanJson returned by
  * POST /api/ai/understand into a HomeDef, plus an ImportReport of what was
@@ -54,6 +55,7 @@ export interface PlanJson {
 
 /** What planJsonToHome kept vs. dropped (invalid rooms, unplaceable openings). */
 export interface ImportReport {
+  warnings?: string[]
   roomsApplied: number
   roomsDropped: number
   doorsApplied: number
@@ -212,6 +214,11 @@ function snapEdges(rects: Rect[], i: number, j: number): boolean {
  * unplaceable openings are dropped and counted in the report.
  */
 export function planJsonToHome(json: unknown): { home: HomeDef; report: ImportReport } {
+  if ((json as {version?:number})?.version === 2) {
+    const home = importArchitecturalPlan(json)
+    const plan = home.architecture!
+    return {home,report:{roomsApplied:home.rooms.length,roomsDropped:0,doorsApplied:plan.openings.filter(o=>o.kind!=='window').length,doorsDropped:0,windowsApplied:plan.openings.filter(o=>o.kind==='window').length,windowsDropped:0,warnings:plan.warnings}}
+  }
   const report: ImportReport = {
     roomsApplied: 0,
     roomsDropped: 0,

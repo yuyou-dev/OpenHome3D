@@ -37,12 +37,14 @@
     "smoke:editor": "node scripts/test-editor-state.mjs && tsx scripts/test-model-search.ts && tsx scripts/test-camera-fit.ts && node scripts/test-runtime.mjs && node scripts/test-editing-invariants.mjs",
     "smoke:interactions": "node scripts/test-interactions.mjs",
     "smoke:ai": "node --test scripts/test-ai-api.mjs",
-    "check": "npm run build && npm run smoke && npm run smoke:editor && npm run smoke:ai",
+    "check": "npm run build && npm run smoke && npm run smoke:editor && npm run smoke:ai && npm run smoke:architecture",
     "smoke:ai-flow": "node scripts/test-ai-flow.mjs",
     "smoke:project": "node scripts/test-project-package.mjs",
-    "check:ui": "npm run smoke:ui && npm run smoke:interactions && npm run smoke:project && npm run smoke:ai-flow && npm run audit:ui",
+    "check:ui": "npm run smoke:ui && npm run smoke:interactions && npm run smoke:project && npm run smoke:ai-flow && npm run audit:ui && npm run smoke:precision:ui",
     "smoke:ai:live": "node scripts/test-ai-live.mjs",
-    "smoke:pages": "npm run build:pages && node scripts/test-pages.mjs"
+    "smoke:pages": "npm run build:pages && node scripts/test-pages.mjs",
+    "smoke:architecture": "tsx scripts/test-architecture-geometry.ts && tsx scripts/test-import-architecture.ts && node scripts/test-architectural-state.mjs && node scripts/test-precision-acceptance.mjs",
+    "smoke:precision:ui": "node scripts/test-precision-ui.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",

@@ -1,7 +1,7 @@
 import type { RootState } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useStore } from '../state/store'
-import { homeAABB } from '../state/home'
+import { homeAABB, homeHeight, homeForRoomLevel } from '../state/home'
 import { fitHomeCamera } from './cameraFit'
 
 /** Camera view presets the UI can request (consumed by CameraRig). */
@@ -139,7 +139,7 @@ export async function captureFittedScreenshot(targetRatio?: number): Promise<str
   const controls = liveControls as { target: THREE.Vector3; enabled: boolean } | null
   const cam = camera as ViewOffsetCamera
   const st = useStore.getState()
-  const bounds = homeAABB(st.home)
+  const bounds = homeAABB(homeForRoomLevel(st.home,st.activeRoomId))
   const target = new THREE.Vector3(bounds.cx, 0.8, bounds.cz)
   const savedTarget = controls?.target.clone()
   const orbitTarget = savedTarget ?? target
@@ -155,7 +155,7 @@ export async function captureFittedScreenshot(targetRatio?: number): Promise<str
   const fov = isOrtho ? 40 : THREE.MathUtils.radToDeg(2 * Math.atan(
     Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * viewport.height / size.height,
   ))
-  const fit = fitHomeCamera(bounds, st.wallHeight, viewport, direction.theta, direction.phi, fov, 0)
+  const fit = fitHomeCamera(bounds, homeHeight(homeForRoomLevel(st.home,st.activeRoomId),st.wallHeight), viewport, direction.theta, direction.phi, fov, 0)
   const savedPos = cam.position.clone()
   const savedQuat = cam.quaternion.clone()
   const savedZoom = cam.zoom

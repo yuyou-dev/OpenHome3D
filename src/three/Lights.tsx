@@ -1,5 +1,5 @@
 import { useStore } from '../state/store'
-import { homeAABB } from '../state/home'
+import { homeAABB, homeForRoomLevel } from '../state/home'
 
 /**
  * Toon lighting: warm sky / soft lavender ground hemisphere fill (the lavender
@@ -9,7 +9,8 @@ import { homeAABB } from '../state/home'
  */
 export default function Lights() {
   const home = useStore((s) => s.home)
-  const aabb = homeAABB(home)
+  const activeRoomId = useStore(s=>s.activeRoomId)
+  const aabb = homeAABB(homeForRoomLevel(home,activeRoomId))
   const extent = Math.max(aabb.w, aabb.d) + 2
 
   return (

@@ -1,7 +1,12 @@
 // Isolated browser/profile; every AI route is intercepted. No Codex calls or account data.
 import assert from 'node:assert/strict'
+import { mkdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { appUrl, launchBrowser, preparePage } from './lib/browser.mjs'
 
+const planFixture = JSON.parse(await readFile(new URL('./fixtures/plan-precision.json', import.meta.url), 'utf8'))
+const output = process.env.SHOT_DIR || '/tmp/home3d-ai-flow'
+await mkdir(output, { recursive: true })
 const browser = await launchBrowser()
 try {
   const page = await browser.newPage()
@@ -45,8 +50,8 @@ try {
     if (!moduleUrl) throw new Error('The app did not load its AI task store')
     window.__testAiTask = (await import(moduleUrl)).useAiTask
   })
-  const clickText = async text => {
-    const button = await page.evaluateHandle(text => [...document.querySelectorAll('button')].find(button => button.textContent.includes(text)), text)
+  const clickText = async (text, selector = 'button') => {
+    const button = await page.evaluateHandle(({ text, selector }) => [...document.querySelectorAll(selector)].find(button => button.textContent.includes(text)), { text, selector })
     assert.ok(button.asElement(), `button not found: ${text}`)
     await button.asElement().click()
     await button.dispose()
@@ -215,9 +220,11 @@ try {
 
   // Recognition shares the backend slot: queued cancellation targets its actual owner.
   await page.click('.ai-panel button[title="Close"]')
+  await page.setViewport({ width: 390, height: 500 })
   await page.evaluate(() => window.__store.getState().setPlanTab('home'))
+  const recognitionBefore = await page.evaluate(() => window.__store.getState().exportProject())
   busy = true
-  await page.evaluate(async fixture => {
+  const uploadPlan = () => page.evaluate(async fixture => {
     const file = new File([await (await fetch(fixture)).blob()], 'mock-plan.png', { type: 'image/png' })
     const input = document.querySelector('input[accept="image/png,image/jpeg"]')
     const transfer = new DataTransfer()
@@ -225,18 +232,74 @@ try {
     input.files = transfer.files
     input.dispatchEvent(new Event('change', { bubbles: true }))
   }, fixture)
-  await page.waitForFunction(() => document.body.textContent.includes('Queued…'))
-  await clickText('中止 Kill')
-  await page.waitForFunction(() => document.body.textContent.includes('Recognizing…'))
+  const dialog = 'dialog.plan-dialog[data-modal][open]'
+  const review = `${dialog}[aria-label="户型解析核对 Plan review"]`
+  const waitRecognitions = async count => {
+    for (let i = 0; i < 200 && recognitionRequests.length < count; i++) await new Promise(resolve => setTimeout(resolve, 25))
+    assert.equal(recognitionRequests.length, count, 'expected intercepted recognition request count')
+  }
+  const waitNoDialog = () => page.waitForSelector(dialog, { hidden: true })
+  const unchanged = async message => assert.equal(await page.evaluate(() => window.__store.getState().exportProject()), recognitionBefore, message)
+  const lateReply = request => respond(request, { ok: true, plan: planFixture, durationMs: 1 }).catch(() => {})
+
+  await uploadPlan()
+  await page.waitForFunction(() => document.querySelector('dialog[open]')?.textContent.includes('Queued…'))
+  assert.equal(await page.$eval(dialog, node => node.matches(':modal') && node.parentElement === document.body), true)
+  assert.equal(await page.$eval(dialog, node => [...node.querySelectorAll('.plan-dialog-actions button')].every(button => {
+    const rect = button.getBoundingClientRect()
+    return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight
+  })), true, 'short mobile queue keeps Cancel and Kill visible')
+  await page.screenshot({ path: join(output, 'recognition-queued.png') })
+  const beforeQueueCancel = [...cancellationPaths]
+  await clickText('放弃识别 Cancel', `${dialog} button`)
+  await waitNoDialog()
+  await unchanged('abandoning a queue keeps the current scene')
+  assert.deepEqual(cancellationPaths, beforeQueueCancel, 'leaving a queue cannot kill another task')
+  assert.equal(recognitionRequests.length, 0)
+
+  await uploadPlan()
+  await page.waitForFunction(() => document.querySelector('dialog[open]')?.textContent.includes('Queued…'))
+  await clickText('中止 Kill', `${dialog} button`)
+  await page.waitForFunction(() => document.querySelector('dialog[open]')?.textContent.includes('Recognizing…'))
   assert.deepEqual(cancellationPaths, ['/api/ai/render/cancel'])
-  assert.equal(recognitionRequests.length, 1, 'queue resumes once when the slot is free')
-  await clickText('取消 Cancel')
-  await page.waitForFunction(() => document.body.textContent.includes('导入户型图 Import plan'))
-  await respond(recognitionRequests[0], { ok: true, plan: { rooms: [{ id: 'late' }], overall: { widthM: 3, depthM: 3 } }, durationMs: 1 }).catch(() => {})
+  await waitRecognitions(1)
+  await unchanged('recognition after a queue remains a pending operation')
+  await clickText('放弃识别 Cancel', `${dialog} button`)
+  await waitNoDialog()
+  await lateReply(recognitionRequests[0])
   await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)))
-  assert.equal(await page.evaluate(() => document.body.textContent.includes('识别到 1 个房间')), false, 'late recognition reply cannot revive a cancelled import')
+  assert.equal(await page.$(dialog), null, 'late valid recognition reply cannot revive a cancelled import')
+  await unchanged('cancelled recognition cannot alter the scene')
+
+  await uploadPlan()
+  await waitRecognitions(2)
+  await respond(recognitionRequests[1], { ok: true, plan: planFixture, durationMs: 1 })
+  await page.waitForSelector(review)
+  await unchanged('successful recognition automatically reviews before applying')
+  await page.screenshot({ path: join(output, 'recognition-review.png') })
+  await page.keyboard.press('Escape')
+  await waitNoDialog()
+  await unchanged('Escape discards a completed pending import')
+
+  await uploadPlan()
+  await waitRecognitions(3)
+  await page.keyboard.press('Escape')
+  await waitNoDialog()
+  await lateReply(recognitionRequests[2])
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)))
+  assert.equal(await page.$(dialog), null, 'Escape also invalidates an in-flight recognition')
+  await unchanged('Escape while recognizing preserves the current scene')
+
+  await uploadPlan()
+  await waitRecognitions(4)
+  await respond(recognitionRequests[3], { ok: true, plan: planFixture, durationMs: 1 })
+  await page.waitForSelector(review)
+  await clickText('导入 Import', `${review} button`)
+  await waitNoDialog()
+  await page.waitForFunction(() => !!window.__store.getState().home.architecture)
+  assert.notEqual(await page.evaluate(() => window.__store.getState().exportProject()), recognitionBefore, 'only explicit Import applies the reviewed plan')
   assert.deepEqual(errors, [], 'browser console/network must remain clean')
-  console.log('AI flow: status/login refresh, background/reopen/cancel, duplicate guard, source/history compatibility, failure recovery, recognition queue cancellation passed')
+  console.log('AI flow: render lifecycle/history/recovery; modal recognition queue/kill/cancel/Escape/late replies and automatic review/import passed')
 } finally {
   await browser.close()
 }

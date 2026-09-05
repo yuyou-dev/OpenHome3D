@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useStore } from '../state/store'
+import PlanDialog from './PlanDialog'
+import { GhostButton } from './components'
 
 /**
  * Corner minimap of the imported floor-plan image, map-style: visible only in
@@ -12,16 +14,6 @@ export default function PlanMinimap() {
   const clearPlanImage = useStore((s) => s.clearPlanImage)
   const src = useStore((s) => s.planImageUrl)
   const [zoom, setZoom] = useState(false)
-
-  // Esc closes the lightbox (click anywhere on it does too)
-  useEffect(() => {
-    if (!zoom) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setZoom(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [zoom])
 
   if (planTab !== 'home' || !planImageKey || !src) return null
   return (
@@ -45,11 +37,10 @@ export default function PlanMinimap() {
         </button>
       </div>
       {zoom && (
-        <div className="lightbox" data-modal="" onClick={() => setZoom(false)}>
-          <div className="lb-stage">
-            <img className="plan-lightbox-img" src={src} alt="户型原图 Original plan" />
-          </div>
-        </div>
+        <PlanDialog title="户型原图 Original plan" label="户型原图 Original plan" onDismiss={() => setZoom(false)}
+          actions={<GhostButton onClick={() => setZoom(false)}>关闭 Close</GhostButton>}>
+          <img className="plan-dialog-image" src={src} alt="户型原图 Original plan" />
+        </PlanDialog>
       )}
     </>
   )

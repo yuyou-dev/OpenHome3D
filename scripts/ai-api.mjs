@@ -1,3 +1,4 @@
+import { PLAN_SCHEMA, UNDERSTAND_PROMPT } from './plan-schema.mjs'
 /**
  * Local AI API (dev-server middleware) — powered entirely by the local
  * codex CLI (child processes). No credentials are read by this script:
@@ -37,12 +38,12 @@ import { createReadStream, mkdtempSync, readdirSync, readFileSync, realpathSync,
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { CODEX_MODEL, CODEX_REASONING_EFFORT, MODEL_LABEL, MIN_CODEX_VERSION, supportsCodexModel } from './ai-config.mjs'
+import { CODEX_MODEL, CODEX_REASONING_EFFORT, PLAN_REASONING_EFFORT, MODEL_LABEL, MIN_CODEX_VERSION, supportsCodexModel } from './ai-config.mjs'
 
 const CODEX_BIN = process.env.HOME3D_CODEX_BIN || 'codex'
 const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
 
-const UNDERSTAND_TIMEOUT_MS = 180_000
+const UNDERSTAND_TIMEOUT_MS = 600_000
 const RENDER_TIMEOUT_MS = 240_000
 const CODEX_CHECK_TTL_MS = 30_000
 const MAX_BODY = 48 * 1024 * 1024
@@ -278,91 +279,6 @@ async function readImageBody(req, res) {
 // Floor-plan recognition: codex exec --output-schema (strict JSON, ephemeral).
 // ---------------------------------------------------------------------------
 
-/** Recognition prompt (English, proven against real floor plans). */
-const UNDERSTAND_PROMPT = `Analyze the attached residential floor plan image. Do not use any tools; just answer. Output ONLY a JSON object (no markdown fences, no commentary) with this shape:
-{
-  "overall": { "widthM": <number>, "depthM": <number> },
-  "rooms": [ { "name": <as labeled>, "type": <living|bedroom|kitchen|bathroom|dining|balcony|garage|office|other>, "x": <m>, "y": <m>, "w": <m>, "d": <m> } ],
-  "doors": [ { "between": [<roomNameA>, <roomNameB or "exterior">], "wall": <n|s|e|w|null>, "at": <0..1|null>, "widthM": <m|null>, "open": <boolean|null> } ],
-  "windows": [ { "room": <roomName>, "wall": <n|s|e|w>, "at": <0..1|null>, "widthM": <m|null> } ]
-}
-Rules: use the dimension annotations to set overall size in meters (annotations may be mm like "8400" or feet/inches like 12'0" — convert); if a room carries its own dimension or area annotation, prefer it for that room; (x,y) is each room's top-left corner in meters from the plan's top-left outer corner; estimate room rectangles from the WALL GEOMETRY (ignore furniture and label positions); "n" is the top edge of the image. Be precise to 0.1 m. If something is unreadable, omit it rather than inventing it.
-Door/window placement: "at" is the opening's CENTER position as a fraction along its wall, measured from the wall's west end (for n/s walls) or north end (for e/w walls) — read it from where the door swing / window symbol is actually drawn, not the wall's midpoint; for a door between two rooms the wall is their shared wall, and the fraction runs along the shared portion. "widthM" is the opening's width in meters (estimate from door-swing arcs, window symbols, or dimension annotations; a typical interior door is 0.8-0.9). For an entrance door ("exterior"), "wall" says which exterior wall of that room it sits on. If two rooms connect with NO door leaf — a wide cased opening, an open-plan kitchen/living area, or a missing wall between them — still list the pair in "doors" but with "open": true, "at" centered on the open stretch, and "widthM" spanning the full open stretch (null if the entire shared wall is gone). Every key must be present; use null for any value you cannot read.
-Balconies: output a balcony as a room with type "balcony". If its outer edge is a railing or half-wall (not a full wall with windows), add a "doors" entry between the balcony room and "exterior" with "open": true, "wall" = the outer edge, and "widthM" spanning the railing. A wide sliding door between a room and its balcony is a "doors" entry between the two rooms with "open": true and "widthM" = the sliding span.`
-
-/** Strict JSON Schema for codex --output-schema. */
-const PLAN_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['overall', 'rooms', 'doors', 'windows'],
-  properties: {
-    overall: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['widthM', 'depthM'],
-      properties: {
-        widthM: { type: 'number' },
-        depthM: { type: 'number' },
-      },
-    },
-    rooms: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name', 'type', 'x', 'y', 'w', 'd'],
-        properties: {
-          name: { type: 'string' },
-          type: {
-            type: 'string',
-            enum: ['living', 'bedroom', 'kitchen', 'bathroom', 'dining', 'balcony', 'garage', 'office', 'other'],
-          },
-          x: { type: 'number' },
-          y: { type: 'number' },
-          w: { type: 'number' },
-          d: { type: 'number' },
-        },
-      },
-    },
-    doors: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        // codex strict mode: required must list every property; optionality
-        // is expressed with nullable types
-        required: ['between', 'wall', 'at', 'widthM', 'open'],
-        properties: {
-          between: {
-            type: 'array',
-            items: { type: 'string' },
-            minItems: 2,
-            maxItems: 2,
-          },
-          wall: { type: ['string', 'null'], enum: ['n', 's', 'e', 'w', null] },
-          at: { type: ['number', 'null'] },
-          widthM: { type: ['number', 'null'] },
-          open: { type: ['boolean', 'null'] },
-        },
-      },
-    },
-    windows: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['room', 'wall', 'at', 'widthM'],
-        properties: {
-          room: { type: 'string' },
-          wall: { type: 'string', enum: ['n', 's', 'e', 'w'] },
-          at: { type: ['number', 'null'] },
-          widthM: { type: ['number', 'null'] },
-        },
-      },
-    },
-  },
-}
-
 async function handleUnderstand(req, res) {
   const parsed = await readImageBody(req, res)
   if (!parsed) return
@@ -386,7 +302,7 @@ async function handleUnderstand(req, res) {
       [
         'exec',
         '--model', CODEX_MODEL,
-        '-c', `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
+        '-c', `model_reasoning_effort="${PLAN_REASONING_EFFORT}"`,
         '--skip-git-repo-check',
         '--ephemeral',
         '-s',
@@ -399,6 +315,7 @@ async function handleUnderstand(req, res) {
         schemaFile,
         '-o',
         outFile,
+        '--',
         UNDERSTAND_PROMPT,
       ],
       UNDERSTAND_TIMEOUT_MS,
@@ -409,7 +326,7 @@ async function handleUnderstand(req, res) {
       return send(res, { ok: false, code: 'cancelled', error: 'recognition cancelled' })
     }
     if (r.timedOut) {
-      return send(res, { ok: false, code: 'error', error: 'recognition timed out (180 s)' })
+      return send(res, { ok: false, code: 'error', error: 'recognition timed out (600 s)' })
     }
     if (r.error || r.code !== 0) {
       const tail = (r.stderr || '').trim().slice(-300) || r.error || `codex exited with code ${r.code}`
@@ -421,10 +338,10 @@ async function handleUnderstand(req, res) {
     } catch {
       plan = extractLastJson(r.stdout)
     }
-    if (!plan || !plan.overall || !Array.isArray(plan.rooms) || plan.rooms.length === 0) {
+    if (!plan || !(plan.version === 2 ? Array.isArray(plan.spaces) && plan.spaces.length > 0 : plan.overall && Array.isArray(plan.rooms) && plan.rooms.length > 0)) {
       return send(res, { ok: false, code: 'error', error: 'unparseable model output' })
     }
-    send(res, { ok: true, plan, durationMs: Date.now() - started, engine: 'codex', codexModel: CODEX_MODEL })
+    send(res, { ok: true, plan, durationMs: Date.now() - started, engine: 'codex', codexModel: CODEX_MODEL, reasoningEffort: PLAN_REASONING_EFFORT })
   } finally {
     if (codexCurrent === current) codexCurrent = null
     if (dir) rmSync(dir, { recursive: true, force: true })

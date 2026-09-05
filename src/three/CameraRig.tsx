@@ -4,7 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, OrthographicCamera, PerspectiveCamera } from '@react-three/drei'
 import { useStore } from '../state/store'
 import { useUI } from '../ui/uiStore'
-import { homeAABB } from '../state/home'
+import { homeAABB, homeHeight, homeForRoomLevel } from '../state/home'
 import { subscribeView, type ViewPreset } from './runtime'
 import { fitHomeCamera, VIEW_BIAS_Y } from './cameraFit'
 
@@ -58,14 +58,14 @@ export default function CameraRig() {
   // pan mode (TopBar toggle): left-drag / one-finger drag pans instead of orbiting
   const panMode = useUI((s) => s.panMode)
   // orbit target follows the home AABB center (origin for the 1-room case)
-  const cx = useStore((s) => homeAABB(s.home).cx)
-  const cz = useStore((s) => homeAABB(s.home).cz)
+  const cx = useStore((s) => homeAABB(homeForRoomLevel(s.home,s.activeRoomId)).cx)
+  const cz = useStore((s) => homeAABB(homeForRoomLevel(s.home,s.activeRoomId)).cz)
   // Pose anchor: the AABB center captured at mount and re-captured only on a
   // projection switch — the only moments the camera pose is (re)applied.
   // Plain AABB-center moves (room drags) must NOT touch the camera props;
   // they retarget the controls smoothly in useFrame instead.
   const [anchor, setAnchor] = useState(() => {
-    const bb = homeAABB(useStore.getState().home)
+    const bb = homeAABB(homeForRoomLevel(useStore.getState().home,useStore.getState().activeRoomId))
     return { cx: bb.cx, cz: bb.cz }
   })
   const get = useThree((s) => s.get)
@@ -90,7 +90,7 @@ export default function CameraRig() {
     setPrevProjection(projection)
     tween.current = null
     manuallyFramed.current = false
-    const bb = homeAABB(useStore.getState().home)
+    const bb = homeAABB(homeForRoomLevel(useStore.getState().home,useStore.getState().activeRoomId))
     setAnchor({ cx: bb.cx, cz: bb.cz })
     lastCenter.current.set(bb.cx, 0.8, bb.cz)
   }
@@ -131,9 +131,9 @@ export default function CameraRig() {
     const isOrtho = projection === 'isometric'
     if (isOrtho !== Boolean((camera as THREE.OrthographicCamera).isOrthographicCamera)) return
     const state = useStore.getState()
-    const bb = homeAABB(state.home)
+    const bb = homeAABB(homeForRoomLevel(state.home,state.activeRoomId))
     const phi = isOrtho ? ISO_PHI : PERSP_PHI
-    const fit = fitHomeCamera(bb, state.wallHeight, size, ISO_THETAS['iso-se'], phi)
+    const fit = fitHomeCamera(bb, homeHeight(homeForRoomLevel(state.home,state.activeRoomId),state.wallHeight), size, ISO_THETAS['iso-se'], phi)
     camera.userData.fitZoom = fit.zoom
     camera.userData.fitDistance = fit.distance
     const target = targetRef.current
@@ -156,7 +156,7 @@ export default function CameraRig() {
       let to: Pose
       if (v === 'reset') {
         const state = useStore.getState()
-        const fit = fitHomeCamera(homeAABB(state.home), state.wallHeight, get().size, ISO_THETAS['iso-se'], state.projection === 'isometric' ? ISO_PHI : PERSP_PHI)
+        const fit = fitHomeCamera(homeAABB(homeForRoomLevel(state.home,state.activeRoomId)), homeHeight(homeForRoomLevel(state.home,state.activeRoomId),state.wallHeight), get().size, ISO_THETAS['iso-se'], state.projection === 'isometric' ? ISO_PHI : PERSP_PHI)
         cam.userData.fitZoom = fit.zoom
         cam.userData.fitDistance = fit.distance
         manuallyFramed.current = false
@@ -166,7 +166,9 @@ export default function CameraRig() {
             : { theta: ISO_THETAS['iso-se'], phi: PERSP_PHI, radius: fit.distance, zoom: 1 }
       } else if (v === 'top') {
         manuallyFramed.current = true
-        to = { ...from, phi: 0.01 }
+        const state = useStore.getState()
+        const fit = state.home.architecture ? fitHomeCamera(homeAABB(homeForRoomLevel(state.home,state.activeRoomId)), homeHeight(homeForRoomLevel(state.home,state.activeRoomId),state.wallHeight), get().size, 0, 0.01) : null
+        to = { ...from, phi: 0.01, ...(fit ? {theta:0, zoom:state.projection==='isometric'?fit.zoom:1, radius:state.projection==='isometric'?ORTHO_RADIUS:fit.distance} : {}) }
       } else {
         manuallyFramed.current = true
         to = { ...from, theta: ISO_THETAS[v], phi: ISO_PHI }

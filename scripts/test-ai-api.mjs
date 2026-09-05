@@ -162,7 +162,7 @@ try {
   assert.equal(understood.codexModel, 'gpt-6-astra')
   const understandArgs = events().find(event => event.type === 'exec').args
   assert.equal(understandArgs[understandArgs.indexOf('--model') + 1], 'gpt-6-astra')
-  assert.ok(understandArgs.includes('model_reasoning_effort="high"'))
+  assert.ok(understandArgs.includes('model_reasoning_effort="medium"'))
   assert.equal(understandArgs[understandArgs.indexOf('-s') + 1], 'read-only')
   assert.ok(understandArgs.includes('--ephemeral') && understandArgs.includes('--output-schema'))
   await assertClean()

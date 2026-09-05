@@ -1,9 +1,11 @@
+import PlanDialog from './PlanDialog'
+import ArchitecturePanel, { PlanReview } from './ArchitecturePanel'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useStore } from '../state/store'
 import { useUI } from './uiStore'
 import { HOME_TEMPLATES } from '../gen/templates'
 import { ROOM_TYPES, getRoomType } from '../gen/roomTypes'
-import { planJsonToHome, type PlanJson } from '../gen/importPlan'
+import { planJsonToHome, type ImportReport } from '../gen/importPlan'
 import { aiStatus, cancelAiTask, downscaleImageToPng, understandPlan } from '../lib/ai'
 import {
   roomById,
@@ -95,21 +97,7 @@ function TemplateRow() {
   )
 }
 
-/**
- * Floor-plan image import: pick a png/jpeg → downscale → POST /api/ai/understand
- * (codex, ~40–70 s, cancellable) → lightweight confirm row → planJsonToHome →
- * store.importHome(home, imageUrl) (corner minimap source, see PlanMinimap).
- * Recognition failures surface as code-specific toasts; cancelling is silent.
- * When the server reports 'busy' (single-flight slot held by another/stale
- * task), the image queues: status polls every 2 s auto-start it once the slot
- * frees, and「中止 Kill」force-kills the other task server-side. A client
- * abort/refresh makes the server kill the codex subprocess, so the slot never
- * stays stuck.
- *
- * Dynamic-state layout note: the elapsed-seconds labels grow while running,
- * so every state row wraps (flexWrap) and the growing button is allowed to
- * shrink with an ellipsis — anything else spills past the sidebar.
- */
+/** Pick → blocking, cancellable recognition → review draft → atomic import. */
 function ImportRow() {
   const importHome = useStore((s) => s.importHome)
   const pushToast = useUI((s) => s.pushToast)
@@ -122,8 +110,10 @@ function ImportRow() {
   const startRef = useRef(0) // running: our start; queued: other task's busySince
   const [phase, setPhase] = useState<'idle' | 'running' | 'queued'>('idle')
   const [elapsed, setElapsed] = useState(0)
+  const [importError, setImportError] = useState<string | null>(null)
   const [pending, setPending] = useState<{
-    plan: PlanJson
+    home: HomeDef
+    report: ImportReport
     rooms: number
     w: number
     d: number
@@ -166,6 +156,7 @@ function ImportRow() {
     setPhase('idle')
     setElapsed(0)
     setPending(null)
+    setImportError(null)
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -220,12 +211,14 @@ function ImportRow() {
       }
       return
     }
-    const plan = res.plan as PlanJson
-    const rooms = Array.isArray(plan?.rooms) ? plan.rooms.length : 0
-    const w = typeof plan?.overall?.widthM === 'number' ? plan.overall.widthM : 0
-    const d = typeof plan?.overall?.depthM === 'number' ? plan.overall.depthM : 0
     setPhase('idle')
-    setPending({ plan, rooms, w, d, dataUrl })
+    try {
+      const {home,report}=planJsonToHome(res.plan)
+      const xs=home.rooms.flatMap(r=>[r.rect.x-r.rect.w/2,r.rect.x+r.rect.w/2])
+      const zs=home.rooms.flatMap(r=>[r.rect.z-r.rect.d/2,r.rect.z+r.rect.d/2])
+      setPending({home,report,rooms:home.rooms.length,w:Math.max(...xs)-Math.min(...xs),d:Math.max(...zs)-Math.min(...zs),dataUrl})
+    } catch(err) { reset();pushToast(`解析校验失败 Validation failed: ${err instanceof Error?err.message:String(err)}`) }
+
   }
 
   const onFile = async (file: File | undefined) => {
@@ -255,7 +248,7 @@ function ImportRow() {
   const apply = () => {
     if (!pending) return
     try {
-      const { home, report } = planJsonToHome(pending.plan)
+      const { home, report } = pending
       importHome(home, pending.dataUrl)
       const dropped = report.roomsDropped + report.doorsDropped + report.windowsDropped
       pushToast(
@@ -263,95 +256,33 @@ function ImportRow() {
           (dropped > 0 ? `,丢弃 ${dropped} dropped` : ''),
       )
     } catch (err) {
-      pushToast(
-        `识别结果无法转换 Conversion failed: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      setImportError(`导入失败 Import failed: ${err instanceof Error ? err.message : String(err)}`)
+      return
     }
     reset()
   }
 
-  // growing status buttons get minWidth:0 + ellipsis so the row never spills
-  const growBtnStyle: CSSProperties = {
-    ...miniBtnStyle,
-    minWidth: 0,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  }
-
   return (
     <div style={{ padding: '3px 0' }}>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/png,image/jpeg"
-        style={{ display: 'none' }}
-        onChange={(e) => void onFile(e.target.files?.[0])}
-      />
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg" style={{ display: 'none' }}
+        onChange={(e) => void onFile(e.target.files?.[0])}/>
       {import.meta.env.PROD && <p className="caption">本机运行可用：npm run dev + codex login<br />AI import is available in the local dev server.</p>}
-      {pending ? (
-        // two lines: the summary gets the full row width (no button squeeze),
-        // actions sit on their own row like 添加房间/删除房间 below
-        <div>
-          <div
-            className="caption"
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              marginBottom: 4,
-            }}
-          >
-            识别到 {pending.rooms} 个房间 · {pending.w.toFixed(1)}×{pending.d.toFixed(1)} m
-          </div>
-          <div className="btn-row">
-            <PrimaryButton style={miniBtnStyle} onClick={apply}>
-              应用 Apply
-            </PrimaryButton>
-            <GhostButton style={miniBtnStyle} onClick={reset}>
-              取消 Cancel
-            </GhostButton>
-          </div>
+      <div className="btn-row"><GhostButton style={miniBtnStyle} disabled={import.meta.env.PROD} onClick={() => fileRef.current?.click()}>
+        导入户型图 Import plan
+      </GhostButton></div>
+      {pending ? <PlanReview plan={pending.home.architecture} home={pending.home} image={pending.dataUrl}
+        summary={`识别到 ${pending.rooms} 个空间 · ${pending.w.toFixed(1)}×${pending.d.toFixed(1)} m`}
+        warnings={pending.report.warnings} error={importError} onClose={reset} onImport={apply}/>
+      : phase !== 'idle' && <PlanDialog compact title="识别户型 · 1 / 3 Recognize plan" label="户型识别 Plan recognition" onDismiss={reset}
+        actions={<><GhostButton onClick={reset}>放弃识别 Cancel</GhostButton>{phase==='queued'&&<GhostButton title="中止上一 AI 任务后开始识别 End the previous AI task" onClick={killPrevious}>中止 Kill</GhostButton>}</>}>
+        <div className="plan-recognition" aria-busy="true">
+          <span className="plan-recognition-spinner" aria-hidden="true"/>
+          <p role="status">{phase==='queued'?'排队中 Queued…':'正在识别户型 Recognizing…'}</p>
+          <p className="plan-recognition-time">{phase==='queued'?'上一任务已运行':'已等待'} {elapsed} 秒</p>
+          <p className="caption">{phase==='queued'?'正在等待上一 AI 任务结束，随后自动识别。Waiting for the previous task.':'正在读取墙线、门窗和空间位置，复杂户型可能需要几分钟。Reading walls, openings and rooms; complex plans can take several minutes.'}</p>
+          <p className="caption">请在此等待，完成后自动进入原图与解析核对。可随时放弃，当前方案保持不变。Review opens automatically when ready. Cancel to keep your current plan.</p>
         </div>
-      ) : phase === 'running' ? (
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          <GhostButton
-            style={{ ...growBtnStyle, flex: '1 1 120px' }}
-            disabled
-            title="识别通常需要 30~70 秒 Recognition typically takes 30–70 s"
-          >
-            识别中 {elapsed}s Recognizing…
-          </GhostButton>
-          <GhostButton style={{ ...miniBtnStyle, flexShrink: 0 }} onClick={reset}>
-            取消 Cancel
-          </GhostButton>
-        </div>
-      ) : phase === 'queued' ? (
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          <GhostButton
-            style={{ ...growBtnStyle, flex: '1 1 100px' }}
-            disabled
-            title="等待上一 AI 任务结束,结束后会自动开始 Starts automatically when the previous task finishes"
-          >
-            排队中 {elapsed}s Queued…
-          </GhostButton>
-          <GhostButton
-            style={{ ...miniBtnStyle, flexShrink: 0 }}
-            title="强制中止服务器上的上一任务 Force-kill the previous task"
-            onClick={killPrevious}
-          >
-            中止 Kill
-          </GhostButton>
-          <GhostButton style={{ ...miniBtnStyle, flexShrink: 0 }} onClick={reset}>
-            取消 Cancel
-          </GhostButton>
-        </div>
-      ) : (
-        <div className="btn-row">
-          <GhostButton style={miniBtnStyle} disabled={import.meta.env.PROD} onClick={() => fileRef.current?.click()}>
-            导入户型图 Import plan
-          </GhostButton>
-        </div>
-      )}
+      </PlanDialog>}
     </div>
   )
 }
@@ -516,6 +447,8 @@ export default function HomeTab() {
       width: kind === 'window' ? 1.2 : 0.9,
     })
   }
+
+  if (home.architecture) return <><TemplateRow/><ImportRow/><ArchitecturePanel/></>
 
   return (
     <>

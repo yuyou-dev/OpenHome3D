@@ -6,6 +6,7 @@ import { ROOM_TYPES } from '../gen/roomTypes'
 import { MODEL_BLOB_KEY } from '../three/runtime'
 import { loadPlanImage } from './planImage'
 import { uid } from './prng'
+import { architecturalFurnitureFits, canonicalArchitecturalHome } from '../gen/architecturalFurniture'
 
 const FORMAT = 'home3d-cartoon'
 const VERSION = 1
@@ -94,12 +95,13 @@ function parsePackage(json: string): ProjectPackage {
   requireValue(positive(s.wallHeight) && positive(s.moveGrid) && ['isometric', 'perspective'].includes(s.projection), 'shell/camera settings')
   requireValue(['cutawayWalls', 'floorSlab', 'windows', 'doorLeaves', 'showFurniture'].every(key => typeof s[key as keyof typeof s] === 'boolean'), 'display settings')
   requireValue(s.planImageUrl === null || imageUrl(s.planImageUrl), 'floor-plan image')
+  if (s.home?.architecture !== undefined) s.home = canonicalArchitecturalHome(s.home)
   requireValue(Array.isArray(s.home?.rooms) && s.home.rooms.length && Array.isArray(s.home.openings) && Array.isArray(s.furniture), 'scene collections')
   const roomIds = new Set<string>()
   for (const room of s.home.rooms) {
     requireValue(room && text(room.id) && !roomIds.has(room.id) && text(room.name) && ROOM_TYPES.some(type => type.id === room.type), 'room identity/type')
     requireValue(room.rect && finite(room.rect.x) && finite(room.rect.z) && positive(room.rect.w) && positive(room.rect.d) && finite(room.salt) && finite(room.partitionHeight) && room.partitionHeight >= 0, 'room geometry')
-    requireValue(!s.home.rooms.some(other => other !== room && roomsOverlap(room, other)), 'overlapping rooms')
+    requireValue(s.home.architecture || !s.home.rooms.some(other => other !== room && roomsOverlap(room, other)), 'overlapping rooms')
     roomIds.add(room.id)
   }
   const openingIds = new Set<string>()
@@ -127,6 +129,7 @@ function parsePackage(json: string): ProjectPackage {
     requireValue(f.params && typeof f.params === 'object' && !Array.isArray(f.params) && Object.values(f.params).every(value => typeof value === 'boolean' || finite(value)), 'furniture parameters')
     requireValue(f.source === undefined || ['manual', 'generated'].includes(f.source), 'furniture source')
     requireValue((f.locked === undefined || typeof f.locked === 'boolean') && (f.decor === undefined || typeof f.decor === 'boolean'), 'furniture flags')
+    requireValue(architecturalFurnitureFits(s.home, f, p.models.find(model => model.def.id === f.modelId)?.def ?? getModel(f.modelId)), 'furniture outside usable floor')
     instanceIds.add(f.id)
     usedModels.add(f.modelId)
   }

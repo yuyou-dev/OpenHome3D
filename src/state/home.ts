@@ -11,6 +11,8 @@
  * - `RoomDef.rect.x/z` is the room CENTER in home coordinates (meters);
  *   furniture positions stay room-local with the room center at [0,0].
  */
+import { wallFootprint } from '../gen/architectureGeometry'
+import type { ArchitecturalPlan } from './architecture'
 import { aabbOf, overlaps } from '../lib/geom'
 import type { RoomTypeSpec } from '../gen/roomTypes'
 
@@ -43,6 +45,7 @@ export interface Opening {
 }
 
 export interface HomeDef {
+  architecture?: ArchitecturalPlan
   rooms: RoomDef[]
   openings: Opening[]
 }
@@ -68,7 +71,13 @@ export function homeAABB(home: HomeDef): {
   if (home.rooms.length === 0) {
     return { minX: 0, minZ: 0, maxX: 0, maxZ: 0, cx: 0, cz: 0, w: 0, d: 0 }
   }
-  const u = aabbOf(home.rooms.map((r) => r.rect))
+  let rects = home.rooms.map((r) => r.rect)
+  if (home.architecture) {
+    const plan=home.architecture
+    const points=[...plan.spaces.flatMap(s=>s.polygon),...plan.walls.flatMap(w=>wallFootprint(w,plan.walls.filter(v=>v.levelId===w.levelId)))]
+    rects=points.map(([x,z])=>({x,z,w:0,d:0}))
+  }
+  const u = aabbOf(rects)
   return {
     minX: u.x - u.w / 2,
     minZ: u.z - u.d / 2,
@@ -327,4 +336,23 @@ export function materializeShell(room: RoomDef, spec: RoomTypeSpec): Opening[] {
     }
   }
   return out
+}
+
+/** Framing uses actual architectural wall heights; legacy scenes retain their global setting. */
+export function homeHeight(home: HomeDef, fallback: number): number {
+  return home.architecture ? Math.max(...home.architecture.levels.map(l=>l.height), ...home.architecture.walls.map(w=>w.height)) : fallback
+}
+
+/** View/capture bounds follow the selected floor; persistence always keeps the complete building. */
+export function homeForRoomLevel(home: HomeDef, roomId: string): HomeDef {
+  const plan = home.architecture
+  if (!plan) return home
+  const levelId = plan.spaces.find(s => s.id === roomId)?.levelId ?? plan.levels[0].id
+  const spaces = plan.spaces.filter(s => s.levelId === levelId)
+  const walls = plan.walls.filter(w => w.levelId === levelId)
+  return { ...home, rooms: home.rooms.filter(r => spaces.some(s => s.id === r.id)), architecture: {
+    ...plan, spaces, walls, levels: plan.levels.filter(l => l.id === levelId),
+    openings: plan.openings.filter(o => walls.some(w => w.id === o.wallId)),
+    furniture: plan.furniture.filter(f => spaces.some(s => s.id === f.spaceId)),
+  } }
 }

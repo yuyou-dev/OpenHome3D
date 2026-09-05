@@ -1710,13 +1710,6 @@ textarea.input:focus,
   background: var(--yellow);
 }
 
-/* plain image stage inside the shared .lightbox */
-.plan-lightbox-img {
-  max-width: 92vw;
-  max-height: calc(100vh - 60px);
-  background: #fff;
-}
-
 /* ------------------------------ loading veil ------------------------------- */
 
 .loading-veil {
@@ -1931,3 +1924,47 @@ textarea.input:focus,
     overflow-y: visible;
   }
 }
+
+/* Architectural trace review uses the same calibrated geometry as the 3D shell. */
+[data-architecture-panel] details {margin-top:10px;border-top:2px solid var(--ink);padding-top:8px}
+[data-architecture-panel] summary {cursor:pointer;font-weight:700;font-size:12px}
+[data-architecture-panel] .input {width:100%;margin:8px 0}
+[data-architecture-panel] .room-item {display:flex;justify-content:space-between;gap:6px}
+
+/* Plan dialogs live in the browser top layer, outside editor stacking contexts. */
+.plan-dialog { position:fixed; inset:0; margin:auto; padding:0; width:min(1100px,calc(100vw - 32px)); max-width:none; max-height:calc(100dvh - 32px); color:var(--ink); background:var(--paper); border:2px solid var(--ink); box-shadow:6px 6px 0 var(--ink); overflow:hidden; pointer-events:auto; }
+.plan-dialog[open] { display:flex; flex-direction:column; }
+.plan-dialog::backdrop { background:rgba(26,26,26,.72); }
+.plan-dialog-header { flex-shrink:0; padding:16px 20px; border-bottom:2px solid var(--ink); }
+.plan-dialog-header h2 { margin:0; font-size:18px; }
+.plan-dialog-body { min-height:0; overflow:auto; overscroll-behavior:contain; padding:16px 20px; }
+.plan-dialog-actions { flex-shrink:0; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:12px; padding:14px 20px; border-top:2px solid var(--ink); }
+.plan-dialog-actions button { min-height:44px; }
+.plan-dialog-image { display:block; width:100%; height:min(68dvh,850px); object-fit:contain; background:white; }
+.plan-review-controls p { margin:0 0 10px; }
+.plan-review-opacity { display:flex; align-items:center; flex-wrap:wrap; gap:12px; font-size:13px; }
+.plan-review-opacity input { flex:1; min-width:100px; }
+.plan-review-controls details { margin:12px 0; }
+.plan-legacy-review { display:grid; grid-template-columns:2fr 1fr; gap:16px; }
+.plan-dialog-compact { width:min(560px,calc(100vw - 32px)); }
+.plan-recognition { text-align:center; padding:16px 0; }
+.plan-recognition [role=status] { font-size:20px; font-weight:bold; }
+.plan-recognition-time { font-variant-numeric:tabular-nums; }
+.plan-recognition-spinner { display:inline-block; width:32px; height:32px; border:4px solid var(--ink); border-top-color:var(--yellow); border-radius:50%; animation:plan-spin 1s linear infinite; }
+@keyframes plan-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .plan-recognition-spinner { animation:none; } }
+@media (max-width:720px) {
+  .plan-dialog { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); }
+  .plan-dialog-header,.plan-dialog-body,.plan-dialog-actions { padding:12px; }
+  .plan-dialog-header h2 { font-size:16px; }
+  .plan-dialog-actions button { flex:1; }
+  .plan-legacy-review { grid-template-columns:1fr; }
+}
+
+.plan-dialog-body:has(> .plan-dialog-image) { display:flex; flex-direction:column; }
+.plan-dialog-body > .plan-dialog-image { min-height:0; }
+.plan-dialog-review { height:min(950px,calc(100dvh - 32px)); }
+.plan-dialog-review .plan-dialog-body { display:flex; flex:1; flex-direction:column; gap:12px; overflow:hidden; }
+.plan-dialog-review .plan-review-controls { flex-shrink:0; max-height:45%; overflow:auto; }
+.plan-dialog-review [data-plan-trace] { flex:1; min-height:0; height:100%; }
+.plan-dialog-review .plan-legacy-review { min-height:0; overflow:auto; }

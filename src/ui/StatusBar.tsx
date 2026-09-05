@@ -1,6 +1,7 @@
+import { floorPieces, polygonArea } from '../gen/architectureGeometry'
 import { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
-import { homeAABB, roomById } from '../state/home'
+import { homeAABB, roomById, homeForRoomLevel } from '../state/home'
 import { subscribeZoomPct } from '../three/runtime'
 import { useUI } from './uiStore'
 import { IconButton } from './components'
@@ -103,8 +104,9 @@ export default function StatusBar() {
   const openModal = useUI((s) => s.openModal)
 
   const roomLabel = room.name.toUpperCase()
-  const bb = homeAABB(home)
-  const totalArea = home.rooms.reduce((sum, r) => sum + r.rect.w * r.rect.d, 0)
+  const visibleHome=homeForRoomLevel(home,room.id)
+  const bb = homeAABB(visibleHome)
+  const totalArea = home.architecture ? visibleHome.architecture!.spaces.filter(s=>s.kind!=='void'&&s.kind!=='ledge').reduce((sum,s)=>sum+floorPieces(s.polygon,home.architecture!.spaces.filter(v=>v.kind==='void'&&v.levelId===s.levelId).map(v=>v.polygon)).reduce((area,p)=>area+polygonArea(p),0),0) : home.rooms.reduce((sum, r) => sum + r.rect.w * r.rect.d, 0)
 
   const rotate = (dir: 1 | -1) => {
     const s = useStore.getState()

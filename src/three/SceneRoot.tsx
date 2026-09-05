@@ -1,10 +1,11 @@
+import ArchitecturalHome from './ArchitecturalHome'
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useProgress } from '@react-three/drei'
 import { useStore } from '../state/store'
 import { useUI } from '../ui/uiStore'
-import { homeAABB } from '../state/home'
+import { homeAABB, homeForRoomLevel } from '../state/home'
 import CameraRig, { ORTHO_ZOOM, PERSP_RADIUS } from './CameraRig'
 import Lights from './Lights'
 import Home from './Home'
@@ -23,7 +24,7 @@ function ZoomProbe() {
     acc.current += delta
     if (acc.current < 0.5) return
     acc.current = 0
-    const bb = homeAABB(useStore.getState().home)
+    const bb = homeAABB(homeForRoomLevel(useStore.getState().home,useStore.getState().activeRoomId))
     VIEW_TARGET.set(bb.cx, 0.8, bb.cz)
     const isOrtho = (camera as THREE.OrthographicCamera).isOrthographicCamera === true
     const pct = isOrtho
@@ -127,6 +128,9 @@ function useKeyboardShortcuts() {
 export default function SceneRoot() {
   const home = useStore((s) => s.home)
   const furniture = useStore((s) => s.furniture)
+  const activeRoomId = useStore(s=>s.activeRoomId)
+  const architecture = home.architecture
+  const levelId=architecture?.spaces.find(s=>s.id===activeRoomId)?.levelId??architecture?.levels[0].id
   const showFurniture = useStore((s) => s.showFurniture)
   const panMode = useUI((s) => s.panMode)
   const planTab = useStore((s) => s.planTab)
@@ -163,10 +167,10 @@ export default function SceneRoot() {
     >
       <CameraRig />
       <Lights />
-      <Home />
-      {planTab === 'home' && <HomeEditor />}
+      {architecture && levelId ? <ArchitecturalHome plan={architecture} levelId={levelId}/> : <Home />}
+      {planTab === 'home' && !architecture && <HomeEditor />}
       {showFurniture &&
-        home.rooms.map((r) => (
+        home.rooms.filter(r=>!architecture || architecture.spaces.some(s=>s.id===r.id && s.levelId===levelId)).map((r) => (
           <group key={r.id} position={[r.rect.x, 0, r.rect.z]}>
             {furniture
               .filter((f) => f.roomId === r.id)

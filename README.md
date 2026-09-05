@@ -397,6 +397,6 @@ OpenHome3D Companion 是本项目配套的 Codex 插件。它可以打开可视�
 
 ## Known limits · 已知限制
 
-Rooms must be non-overlapping rectangles; combine rectangles for an L-shaped space. Furniture cannot be dragged between rooms. If a room is smaller than a piece, the piece is centered without silently rescaling it. Only some generation rules avoid door zones; rerun Shuffle after opening edits. Interior walls do not participate in cutaway. AI recognition may miss objects or estimate dimensions incorrectly; calibrate the result in the editor. Image generation may slightly alter composition.
+Legacy template editing uses non-overlapping rectangles; combine rectangles for an L-shaped space. Precision imports retain polygons, independent walls and level metadata. Furniture cannot be dragged between rooms. If a room is smaller than a piece, the piece is centered without silently rescaling it. Only some generation rules avoid door zones; rerun Shuffle after opening edits. Interior walls do not participate in cutaway. AI recognition may miss objects or estimate dimensions incorrectly; calibrate the result in the editor. Image generation may slightly alter composition.
 
-房间须为不重叠矩形，L 形可用多个矩形拼接；家具不跨房间拖动，房间小于家具时只归中、不自动缩模。部分布局规则尚未避门，门窗编辑后需再次「换一换」才应用避让；内墙不参与剖切。识别结果需校准尺寸和漏报，效果图也可能略改构图。
+旧模板编辑使用不重叠矩形，L 形可用多个矩形拼接；精确导入保留多边形、独立墙体和楼层信息；家具不跨房间拖动，房间小于家具时只归中、不自动缩模。部分布局规则尚未避门，门窗编辑后需再次「换一换」才应用避让；内墙不参与剖切。识别结果需校准尺寸和漏报，效果图也可能略改构图。

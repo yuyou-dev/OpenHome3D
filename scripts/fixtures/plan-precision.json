@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "source": { "width": 1200, "height": 900, "bounds": [100, 100, 900, 700], "scale": 0.01, "confidence": 0.9 },
+  "levels": [{ "id": "L2", "name": "二层", "elevation": 3, "height": 2.8 }],
+  "spaces": [
+    { "id": "living", "name": "L形客厅", "type": "living", "levelId": "L2", "polygon": [[100,100],[600,100],[600,300],[300,300],[300,700],[100,700]], "kind": "room", "stairDirection": null },
+    { "id": "bed1", "name": "次卧", "type": "bedroom", "levelId": "L2", "polygon": [[600,100],[900,100],[900,400],[600,400]], "kind": "room", "stairDirection": null },
+    { "id": "bed2", "name": "次卧", "type": "bedroom", "levelId": "L2", "polygon": [[300,400],[900,400],[900,700],[300,700]], "kind": "room", "stairDirection": null },
+    { "id": "void", "name": "客厅上空", "type": "other", "levelId": "L2", "polygon": [[320,320],[580,320],[580,380],[320,380]], "kind": "void", "stairDirection": null }
+  ],
+  "walls": [{ "id": "w1", "levelId": "L2", "start": [100,100], "end": [900,100], "thickness": 20, "height": 2.8, "kind": "exterior" }],
+  "openings": [{ "id": "o1", "wallId": "w1", "kind": "door", "offset": 70, "width": 80, "sill": 0, "height": 2.1, "operation": "hinged", "hinge": "end", "swing": 1 }],
+  "furniture": [
+    { "id": "chair-drawing", "spaceId": "living", "type": "chair", "label": "识别椅子", "center": [200,500], "width": 50, "depth": 50, "rotation": 0.25, "confidence": 0.95 },
+    { "id": "bed-drawing", "spaceId": "bed1", "type": "bed", "label": "识别床", "center": [750,250], "width": 120, "depth": 190, "rotation": 0, "confidence": 0.95 }
+  ],
+  "dimensions": [
+    { "label": "8000", "axis": "x", "from": 100, "to": 900, "meters": 8, "status": "used" },
+    { "label": "9000", "axis": "x", "from": 100, "to": 900, "meters": 9, "status": "used" }
+  ],
+  "warnings": ["高度为合成测试估值 Synthetic height estimate"]
+}

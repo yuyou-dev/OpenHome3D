@@ -17,10 +17,10 @@ OpenHome3D must be validated independently after the complete port. Current sync
 | Check | This synchronization |
 | --- | --- |
 | `npm run check` | Passed independently in OpenHome3D: build, 205 layout checks, editor/state/camera regressions, 21 mocked AI checks, 23 architectural geometry checks, 37 import checks, architectural state and invalid-input acceptance cases. |
-| `npm run check:ui` (including `smoke:precision:ui`) | Release maintainer to record final run |
-| `npm run smoke:pages` | Release maintainer to record final run |
-| `npm run companion:test` | Release maintainer to record final run |
-| `npm run scan:public` | Release maintainer to record final run |
+| `npm run check:ui` (including `smoke:precision:ui`) | Passed: UI, interactions, portable projects, mocked AI flow, clean overflow audit, and precision import at 1600×1000, 390×844 and 390×500. |
+| `npm run smoke:pages` | Passed: Pages build, subpath assets, loaded scene, local-only AI message, disabled AI actions, no API calls or browser errors. |
+| `npm run companion:test` | Passed: 12 tests, zero failures. |
+| `npm run scan:public` | Passed: 170 text/source files clean; personal images and real recognition artifacts excluded. |
 
 Normal browser regressions use isolated profiles and mock every AI route. Public architecture fixtures are synthetic. The local sibling's nine private floor plans were tested with real GPT-6 Astra before this port; [the sanitized summary](docs/precision-floorplan/results.md) records that separate provenance. This synchronization does not claim a fresh real nine-image run in OpenHome3D. Personal images, filenames, manual ground-truth coordinates, raw model results and generated private projects are excluded from public source.
 

@@ -28,6 +28,9 @@ import {
 } from '../models/registry'
 import { deletePlanImage, loadPlanImage, PLAN_IMAGE_KEY, savePlanImage } from '../lib/planImage'
 import { createHistory } from './history'
+import type { ArchitecturalPlan } from './architecture'
+import { validateArchitecture } from '../gen/importArchitecture'
+import { architecturalFurnitureFits, canonicalArchitecturalHome, findArchitecturalPosition, generateArchitecturalRoom, importArchitecturalFurniture } from '../gen/architecturalFurniture'
 
 export type PlanTab = 'home' | 'room'
 export type Projection = 'isometric' | 'perspective'
@@ -94,6 +97,7 @@ export interface HGState extends StructureSettings {
   /** Rehydrate image bytes and any snapshots captured while IndexedDB was loading. */
   restorePlanImage: () => Promise<void>
 
+  setArchitecture: (plan: ArchitecturalPlan) => void
   setPlanTab: (tab: PlanTab) => void
   setRoomType: (type: string) => void
   setRoomRect: (roomId: string, rect: RoomDef['rect']) => void
@@ -150,6 +154,7 @@ function layoutForRoom(
   preserved: FurnitureInstance[] = [],
   decorOnly = false,
 ): FurnitureInstance[] {
+  if (s.home.architecture) return generateArchitecturalRoom(s.home, room, s.seed, s.extras, preserved, decorOnly)
   return generateLayout({
     roomType: room.type,
     seed: `${s.seed}@${room.id}`,
@@ -206,7 +211,7 @@ function clampedPosition(
 /** Keep an instance's current position inside its room after its geometry changes. */
 function reclampInstance(inst: FurnitureInstance, home: HomeDef): FurnitureInstance {
   const room = roomById(home, inst.roomId)
-  if (!room) return inst
+  if (!room || home.architecture) return inst
   return {
     ...inst,
     position: clampedPosition(
@@ -223,6 +228,7 @@ function reclampInstance(inst: FurnitureInstance, home: HomeDef): FurnitureInsta
 const PROJECT_FILE_VERSION = 1
 
 function structurePatch(home: HomeDef, selectedOpeningId: string | null): Partial<HGState> {
+  if (home.architecture) return { home, selectedOpeningId: null, structureNotice: home.architecture.warnings.length ? `${home.architecture.warnings.length} 项提示见专业结构面板 Review notes in the structure panel` : null }
   const result = reconcileOpenings(home)
   return {
     home: result.home,
@@ -303,6 +309,20 @@ export const useStore = create<HGState>()(
       const history = createHistory<EditSnapshot>()
       const set = (patch: Partial<HGState>, includeView = false) => {
         const before = get()
+        const nextHome = patch.home ?? before.home
+        if (nextHome.architecture && patch.furniture) {
+          let rejected = 0
+          const furniture = patch.furniture.flatMap(item => {
+            if (architecturalFurnitureFits(nextHome, item)) return [item]
+            rejected++
+            const previous = before.furniture.find(f => f.id === item.id)
+            return previous && architecturalFurnitureFits(nextHome, previous) ? [previous] : []
+          })
+          patch = { ...patch, furniture: furniture.length === before.furniture.length && furniture.every((f, i) => f === before.furniture[i]) ? before.furniture : furniture }
+          if (rejected) patch.structureNotice = '家具不能进入墙体、门区、挑空、楼梯或房间外部 Furniture must remain on usable floor'
+          const selectedId = patch.selectedId === undefined ? before.selectedId : patch.selectedId
+          if (selectedId && !furniture.some(f => f.id === selectedId)) patch.selectedId = null
+        }
         const after = { ...before, ...patch }
         if (EDIT_KEYS.some((key) => before[key] !== after[key]) ||
           (includeView && (before.projection !== after.projection || before.moveGrid !== after.moveGrid))) {
@@ -310,6 +330,11 @@ export const useStore = create<HGState>()(
         }
         rawSet({ ...patch, ...history.flags() })
         persistPlanImage(before, after)
+      }
+      const blockRectangleEdit = () => {
+        if (!get().home.architecture) return false
+        rawSet({ structureNotice: '请在专业结构面板编辑真实户型 Edit this plan in the architectural structure panel' })
+        return true
       }
       const restore = (direction: 'undo' | 'redo') => {
         const before = get()
@@ -342,6 +367,7 @@ export const useStore = create<HGState>()(
         structureNotice: null,
         dismissStructureNotice: () => rawSet({ structureNotice: null }),
         restoreCompleteProject: (project) => {
+          if (project.home.architecture) validateArchitecture(project.home.architecture)
           const before = get()
           history.end()
           project.uploads.forEach(registerUpload)
@@ -374,9 +400,27 @@ export const useStore = create<HGState>()(
           }
         },
 
+        setArchitecture: (plan) => {
+          validateArchitecture(plan)
+          const s = get()
+          const home = canonicalArchitecturalHome({ ...s.home, architecture: plan })
+          const factor = s.home.architecture ? plan.source.scale / s.home.architecture.source.scale : 1
+          const furniture = s.furniture.flatMap(item => {
+            const oldRoom = roomById(s.home, item.roomId), room = roomById(home, item.roomId)
+            if (!oldRoom || !room) return []
+            const next: FurnitureInstance = { ...item, scale: item.scale * factor, position: [(item.position[0] + oldRoom.rect.x) * factor - room.rect.x, (item.position[1] + oldRoom.rect.z) * factor - room.rect.z] }
+            return architecturalFurnitureFits(home, next) ? [next] : []
+          })
+          const removed = s.furniture.length - furniture.length
+          set({ home, furniture, activeRoomId: home.rooms.some(room => room.id === s.activeRoomId) ? s.activeRoomId : home.rooms[0].id,
+            selectedOpeningId: null,
+            structureNotice: removed ? `结构调整移除了 ${removed} 件无合法位置的家具 Removed furniture outside usable floor: ${removed}` : null })
+        },
+
         setPlanTab: (tab) => set({ planTab: tab }),
 
         setRoomType: (type) => {
+          if (blockRectangleEdit()) return
           const s = get()
           const room = roomById(s.home, s.activeRoomId)
           if (!room || room.type === type) return
@@ -387,6 +431,7 @@ export const useStore = create<HGState>()(
         },
 
         setRoomRect: (roomId, rect) => {
+          if (blockRectangleEdit()) return
           const s = get()
           const room = roomById(s.home, roomId)
           if (!room) return
@@ -410,6 +455,7 @@ export const useStore = create<HGState>()(
         },
 
         setRoomPartition: (height) => {
+          if (blockRectangleEdit()) return
           const s = get()
           const room = roomById(s.home, s.activeRoomId)
           if (!room) return
@@ -488,12 +534,15 @@ export const useStore = create<HGState>()(
 
         /** Adopt an imported home (floor-plan recognition): keep the current seed, lay out every room. */
         importHome: (home, imageUrl) => {
-          home = reconcileOpenings(home).home
+          home = home.architecture ? canonicalArchitecturalHome(home) : reconcileOpenings(home).home
           const s = get()
+          const imported = home.architecture ? importArchitecturalFurniture(home, s.seed, s.extras) : null
+          if (imported && home.architecture) home = {...home,architecture:{...home.architecture,warnings:[...new Set(imported.warnings)]}}
           set({
             home,
-            activeRoomId: home.rooms[0].id,
-            furniture: regenAll({ seed: s.seed, extras: s.extras, home }, home.rooms),
+            activeRoomId: home.rooms.find(room => !home.architecture || ['room', 'balcony'].includes(home.architecture.spaces.find(space => space.id === room.id)!.kind))?.id ?? home.rooms[0].id,
+            furniture: imported?.furniture ?? regenAll({ seed: s.seed, extras: s.extras, home }, home.rooms),
+            structureNotice: imported?.warnings.length ? `${imported.warnings.length} 项识别/家具提示已保存在专业面板 Review ${imported.warnings.length} notes in the structure panel` : null,
             planImageKey: imageUrl ? PLAN_IMAGE_KEY : null,
             planImageUrl: imageUrl ?? null,
             selectedId: null,
@@ -530,6 +579,7 @@ export const useStore = create<HGState>()(
         },
 
         addRoom: (type) => {
+          if (blockRectangleEdit()) return
           const s = get()
           const active = roomById(s.home, s.activeRoomId) ?? s.home.rooms[0]
           if (!active) return
@@ -573,6 +623,7 @@ export const useStore = create<HGState>()(
         },
 
         removeRoom: (roomId) => {
+          if (blockRectangleEdit()) return
           const s = get()
           if (s.home.rooms.length <= 1) return // keep at least one room
           if (!roomById(s.home, roomId)) return
@@ -599,6 +650,7 @@ export const useStore = create<HGState>()(
         selectOpening: (id) => set({ selectedOpeningId: id }),
 
         addOpening: (o) => {
+          if (blockRectangleEdit()) return
           const s = get()
           if (!roomById(s.home, o.a)) return
           const next = fitOpening(s.home, { ...o, id: uid() })
@@ -606,6 +658,7 @@ export const useStore = create<HGState>()(
           set({ home: { ...s.home, openings: [...s.home.openings, next] } })
         },
         removeOpening: (id) => {
+          if (blockRectangleEdit()) return
           const s = get()
           if (!s.home.openings.some((o) => o.id === id)) return
           set({
@@ -615,6 +668,7 @@ export const useStore = create<HGState>()(
         },
 
         updateOpening: (id, partial) => {
+          if (blockRectangleEdit()) return
           const s = get()
           const cur = s.home.openings.find((o) => o.id === id)
           if (!cur) return
@@ -626,7 +680,15 @@ export const useStore = create<HGState>()(
           })
         },
 
-        setStructure: (partial) => set(partial),
+        setStructure: (partial) => {
+          if (partial.wallHeight !== undefined && get().home.architecture) {
+            blockRectangleEdit()
+            const { wallHeight: _height, ...display } = partial
+            set(display)
+            return
+          }
+          set(partial)
+        },
 
         // Lightweight JSON project file (idea from OpenHome3D discussion #6):
         // room, openings and registry furniture only — uploaded GLBs stay out of scope.
@@ -656,7 +718,12 @@ export const useStore = create<HGState>()(
           }
           if (p?.version !== PROJECT_FILE_VERSION)
             return '项目文件版本不支持 Unsupported project file version'
-          const rawRooms = p.home?.rooms
+          let architecturalHome: HomeDef | undefined
+          if (p.home?.architecture !== undefined) {
+            try { architecturalHome = canonicalArchitecturalHome(p.home) }
+            catch (error) { return `建筑数据无效 Invalid architecture: ${error instanceof Error ? error.message : String(error)}` }
+          }
+          const rawRooms = architecturalHome?.rooms ?? p.home?.rooms
           if (!Array.isArray(rawRooms) || rawRooms.length === 0)
             return '项目文件没有房间 No rooms in project file'
           // Keep stable IDs when possible; duplicate IDs must not couple unrelated edits.
@@ -670,6 +737,12 @@ export const useStore = create<HGState>()(
           const idMap = new Map<string, string>() // file id → live id
           const rooms: RoomDef[] = []
           for (const r of rawRooms) {
+            if (architecturalHome) {
+              rooms.push(r)
+              ids.add(r.id)
+              idMap.set(r.id, r.id)
+              continue
+            }
             const rect = r?.rect
             if (!rect || ![rect.x, rect.z, rect.w, rect.d].every((v) => Number.isFinite(v))) continue
             const fileId = typeof r.id === 'string' && r.id ? r.id : ''
@@ -697,9 +770,9 @@ export const useStore = create<HGState>()(
             if (fileId && !idMap.has(fileId)) idMap.set(fileId, id)
           }
           if (rooms.length === 0) return '房间尺寸数据无效 Invalid room rect'
-          const home: HomeDef = { rooms, openings: [] }
+          const home: HomeDef = architecturalHome ?? { rooms, openings: [] }
           // openings: a/b resolved through the id map ('exterior' stays)
-          for (const o of Array.isArray(p.home?.openings) ? p.home.openings : []) {
+          for (const o of !architecturalHome && Array.isArray(p.home?.openings) ? p.home.openings : []) {
             if (!o || !['door', 'window', 'open'].includes(o.kind)) continue
             if (!['n', 's', 'e', 'w'].includes(o.side)) continue
             if (!Number.isFinite(o.offset) || !Number.isFinite(o.width)) continue
@@ -723,6 +796,8 @@ export const useStore = create<HGState>()(
           for (const f of Array.isArray(p.furniture) ? p.furniture : []) {
             const def = f && getModel(f.modelId)
             if (!def) continue
+            if (architecturalHome && !idMap.has(f.roomId)) return '家具所属空间不存在 Furniture space is missing'
+            if (architecturalHome && (!Number.isFinite(f.scale) || f.scale <= 0)) return '家具缩放无效 Invalid furniture scale'
             const room = roomById(home, idMap.get(f.roomId) ?? '') ?? fallbackRoom
             const params = defaultParams(def)
             for (const spec of def.params ?? []) {
@@ -743,12 +818,13 @@ export const useStore = create<HGState>()(
               ],
               rotationY: Number.isFinite(f.rotationY) ? f.rotationY : 0,
               params,
-              scale: clamp(Number.isFinite(f.scale) ? f.scale : 1, 0.1, 2),
+              scale: architecturalHome ? f.scale : clamp(Number.isFinite(f.scale) ? f.scale : 1, 0.1, 2),
               ...(f.source === 'generated' || f.source === 'manual' ? { source: f.source } : {}),
               ...(typeof f.decor === 'boolean' ? { decor: f.decor } : {}),
               ...(typeof f.locked === 'boolean' ? { locked: f.locked } : {}),
             }
-            inst.position = clampedPosition(
+            if (architecturalHome && !architecturalFurnitureFits(home, inst)) return '家具不在可用空间内 Furniture lies outside usable floor'
+            inst.position = architecturalHome ? inst.position : clampedPosition(
               inst,
               inst.position[0],
               inst.position[1],
@@ -765,6 +841,7 @@ export const useStore = create<HGState>()(
             activeRoomId: rooms[0].id,
             selectedId: null,
             selectedOpeningId: null,
+            structureNotice: home.architecture?.warnings.length ? `${home.architecture.warnings.length} 项提示见专业结构面板 Review notes in the structure panel` : null,
             planImageKey: null,
             planImageUrl: null,
           })
@@ -803,7 +880,11 @@ export const useStore = create<HGState>()(
             scale: 1,
             source: 'manual',
           }
-          inst.position = clampedPosition(inst, at?.[0] ?? 0, at?.[1] ?? 0, room.rect.w, room.rect.d)
+          inst.position = s.home.architecture ? [at?.[0] ?? 0, at?.[1] ?? 0] : clampedPosition(inst, at?.[0] ?? 0, at?.[1] ?? 0, room.rect.w, room.rect.d)
+          if (s.home.architecture && !at) {
+            const position = findArchitecturalPosition(s.home, inst)
+            if (position) inst.position = position
+          }
           set({ furniture: [...s.furniture, inst], selectedId: inst.id })
         },
 
@@ -862,7 +943,7 @@ export const useStore = create<HGState>()(
           const item = s.furniture.find((f) => f.id === id)
           const room = item && roomById(s.home, item.roomId)
           if (!item || !room) return
-          const position = clampedPosition(item, x, z, room.rect.w, room.rect.d)
+          const position: [number, number] = s.home.architecture ? [x, z] : clampedPosition(item, x, z, room.rect.w, room.rect.d)
           if (position[0] === item.position[0] && position[1] === item.position[1]) return
           set({ furniture: s.furniture.map((f) => f.id === id ? { ...f, source: 'manual', position } : f) })
         },
@@ -877,7 +958,7 @@ export const useStore = create<HGState>()(
               const room = roomById(s.home, f.roomId)
               if (!room) return f
               const next: FurnitureInstance = { ...f, source: 'manual', rotationY }
-              next.position = clampedPosition(
+              next.position = s.home.architecture ? f.position : clampedPosition(
                 next,
                 f.position[0],
                 f.position[1],
@@ -999,7 +1080,7 @@ export const useStore = create<HGState>()(
         // restored uploads are metadata-only in storage; re-register them in the live registry
         state?.uploads.forEach((u) => registerUpload(u))
         if (state?.planImageKey) void state.restorePlanImage().catch(() => {})
-        if (state) state.home = reconcileOpenings(state.home).home
+        if (state) state.home = state.home.architecture ? canonicalArchitecturalHome(state.home) : reconcileOpenings(state.home).home
         // activeRoomId is not persisted: fall back to the first room
         if (state && !state.home.rooms.some((r) => r.id === state.activeRoomId)) {
           state.activeRoomId = state.home.rooms[0]?.id ?? ''
