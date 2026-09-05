@@ -6,3 +6,6 @@ dist
 .DS_Store
 .harness
 tmp
+
+# Private local floor-plan images, generated projects and test evidence
+.local/

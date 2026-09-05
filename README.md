@@ -21,7 +21,7 @@ The [online demo](https://yuyou-dev.github.io/OpenHome3D/) runs entirely in the 
 
 The latest milestone adds a real AI layer to OpenHome3D, not just another editor control. Your own local [Codex CLI](https://github.com/openai/codex) gives the app two optional superpowers:
 
-1. **Understand a floor plan** — import a PNG or JPEG; Codex recognizes rooms, doors, windows, connected openings, and balconies, then OpenHome3D builds an editable multi-room home.
+1. **Understand a floor plan** — import a PNG or JPEG; Codex traces room polygons, walls, doors, windows, balconies, stairs and voids. Recognition opens a source/geometry comparison automatically; only **Import** replaces your current home.
 2. **Repaint the 3D scene** — turn the current cartoon composition into a photorealistic, cinematic, anime, cyberpunk, watercolor, clay, or cel-style image, while keeping the room layout and camera framing as the guide.
 
 | Editable OpenHome3D scene | Example local AI repaint |
@@ -39,7 +39,7 @@ The image on the right is an example repaint from the scene on the left. Generat
 ## What you can make
 
 - **A furnished whole home in one click** — 8 room types and 3 home templates; the same seed recreates the same layout.
-- **An editable floor plan in 3D** — drag and resize rooms from the top view; add doors, windows, full-height openings, balcony parapets, and cutaway walls.
+- **An editable floor plan in 3D** — drag and resize template rooms, or import precise polygons and independent walls. Imported structures offer scale calibration, wall dimensions and hosted opening edits; stairs, voids and bay ledges retain distinct geometry.
 - **A room that feels like yours** — browse 337 bundled CC0 models, tune 18 parametric pieces, upload your own model, then move, rotate, duplicate, resize, or swap furniture.
 - **A stylized presentation** — flat cel-shaded colors, ink outlines, soft shadows, isometric and perspective cameras, plus exportable project files.
 - **Edits that survive regeneration** — hand-added, edited, locked and legacy furniture stays through Shuffle; density only rebuilds unprotected automatic decorations. Room resizing clamps existing positions, and changed wall connections are repaired with a notice when an opening must be removed.
@@ -134,7 +134,7 @@ npm run doctor
 ## A five-minute first project
 
 1. Choose **Home** and start with Studio, 1BR, or 2BR — or import a floor-plan image when running locally with Codex.
-2. Open **Room** to change the active room type, dimensions, or partition height.
+2. For templates, open **Room** to change type, dimensions or partition height. For imported architectural plans, use the structure panel to inspect levels, calibrate scale and edit walls/openings.
 3. Press **Shuffle** until the seeded furnishing feels close, then drag and edit individual pieces.
 4. Use the top toolbar to switch view, projection, pan mode, cutaway walls, windows, floor slab, and furniture visibility.
 5. Use **Save** to download a portable `.home3d` project; **Open** restores it and **Layout** exports the compatible lightweight JSON. When local AI is available, open **AI Render** to make and compare a concept image.
@@ -160,13 +160,21 @@ The active scene is stored in localStorage; uploads, reference photos, AI histor
 
 ## Local AI behavior
 
-The path is browser → Vite `/api/ai/*` → `codex exec`. The app does not read credentials or require an API key; `HOME3D_CODEX_BIN` can select the codex executable. Both floor-plan recognition and render orchestration explicitly select **GPT-6 Astra** (`--model gpt-6-astra`) with `high` reasoning effort, configured once in `scripts/ai-config.mjs` instead of inheriting the user's global default. See the [official model page](https://developers.openai.com/api/docs/models/gpt-6-astra). Rendering still calls codex's `image_gen` tool: GPT-6 Astra is the orchestration model, not a claim about the image tool's own model version.
+The path is browser → Vite `/api/ai/*` → `codex exec`. The app does not read credentials or require an API key; `HOME3D_CODEX_BIN` can select the codex executable. Both floor-plan recognition and render orchestration explicitly select **GPT-6 Astra** (`--model gpt-6-astra`). Recognition uses `medium` reasoning effort; render orchestration uses `high`. Both are configured in `scripts/ai-config.mjs` instead of inheriting the user's global default. See the [official model page](https://developers.openai.com/api/docs/models/gpt-6-astra). Rendering still calls codex's `image_gen` tool: GPT-6 Astra is the orchestration model, not a claim about the image tool's own model version.
 
-Recognition returns structured JSON; rendering calls `image_gen` once. They share one execution slot. Login and busy status refresh automatically. Closing the render panel keeps the task running in the same page, with status in the top bar; reopen it to view the result or cancel. Reloading or closing the page ends the running request.
+Recognition returns structured geometry in the original image coordinate system, then converts it once to meters. A top-layer progress dialog allows Cancel/Escape; successful recognition automatically opens the source/trace comparison. Import applies the reviewed structure and source image together, with undo support. Closing a review leaves the current scene intact. Complex plans can take several minutes; the recognition limit is 600 seconds. Rendering calls `image_gen` once. They share one execution slot. Login and busy status refresh automatically. Closing the render panel keeps the task running in the same page, with status in the top bar; reopen it to view the result or cancel. Reloading or closing the page ends the running request.
 
 New render-history entries retain the actual input screenshot, prompt, reference-image snapshots and result from that task. Older image-only entries display only their result. If saving history fails, the current result remains available for immediate download. Ratios are requested as 1:1, 3:2 or 2:3; the image tool determines actual dimensions and can slightly change composition.
 
 Only `npm run dev` provides AI endpoints. The Pages demo, production build and `npm run preview` show local-only guidance instead. CLI tool availability and output formats can change; implementation contracts are in [AGENTS.md](AGENTS.md).
+
+## Precision floor plans
+
+Imported architectural plans preserve non-rectangular spaces, explicit wall centerlines/thicknesses, wall-hosted openings, level metadata, stairs and voids. The original image, comparison and recognition progress use native top-layer dialogs: background controls stay inactive, Cancel/Close and Escape remain available, and the full drawing fits above the action bar on desktop and mobile.
+
+Use a verified distance for uniform scale calibration; conflicting dimensions and inferred heights remain visible. The structure panel edits existing wall and opening parameters. Free wall-node drawing, DWG/DXF/IFC exchange and automatic alignment of separate duplex images are not implemented. Levels are currently viewed individually. Raster recognition remains a draft for checking against measurements.
+
+Both `.home3d` and lightweight layout JSON retain architectural geometry; only `.home3d` includes the source image and referenced resources. Legacy templates and rectangular layouts keep their existing editing path. See [module contracts and limits](docs/precision-floorplan/README.md), [import interaction](docs/precision-floorplan/import-interaction.md) and [validation scope](docs/precision-floorplan/results.md).
 
 ## Community & Pull Requests
 
@@ -219,8 +227,10 @@ Most users only need `npm run dev`. Maintainers may also use:
 | `npm run smoke:pages` | Build and test the Pages subpath, assets and local-only AI guidance without mocks or publishing |
 | `npm run build:pages` | Type checks + production build using `/OpenHome3D/` as the base URL |
 | `npm run preview` | Serve `dist/`, without local AI endpoints |
-| `npm run check` | Build, layout, editor/search/camera and mocked AI middleware regressions |
+| `npm run check` | Build, layout, architecture, editor/search/camera and mocked AI middleware regressions |
 | `npm run smoke` | Layout determinism, bounds, collisions, door avoidance, templates, plan conversion and walls |
+| `npm run smoke:architecture` | Synthetic geometry/import/furniture/project/state regressions for architectural plans |
+| `npm run smoke:precision:ui` | Mocked import/review/cancel flow, native modal isolation, mobile image fit and structural editing |
 | `npm run smoke:editor` | Edit history, preservation, openings, plan-image recovery, search, camera and screenshot regressions |
 | `npm run smoke:ai:live -- --run` | Explicit live check: one recognition and one generated image; requires a dev server and consumes account credits |
 | `npm run smoke:ai` | Middleware tests with a simulated codex executable; no real AI calls |
@@ -257,7 +267,7 @@ The in-app **家居生成器 Cartoon** brand remains intact in this open-source 
 
 这次更新不是在编辑器里再加一个小按钮，而是为 OpenHome3D 补上了一条完整的 AI 工作流：
 
-1. **看懂户型图**：上传 PNG/JPEG 户型图，Codex 会识别房间、门窗、内墙打通和阳台；OpenHome3D 再把结果修复并转换成可以继续拖拽、改尺寸、摆家具的 3D 整宅。
+1. **看懂户型图**：上传 PNG/JPEG，Codex 按原图描出空间多边形、独立墙线、门窗、阳台、楼梯与挑空。识别期间可放弃，成功后自动进入原图/解析叠加核对，最后点击「导入」才替换当前方案，且可撤销。专业结构可校准统一比例、修改墙厚/高和已有门窗属性；旧模板仍支持矩形拖拽编辑。
 2. **把卡通方案重绘成效果图**：完成 3D 布局后，可以生成写实、电影感、动画、赛博霓虹、水彩、粘土或赛璐璐风格的图片，并用滑动对比查看 3D 原图与生成结果。
 
 AI 只在本机开发服务器中运行。OpenHome3D 不读取 Codex 登录文件，也不要求你填写 API key；在线 Demo 仍然保持纯静态、纯浏览器运行。
@@ -339,7 +349,7 @@ codex login
 npm run doctor
 ```
 
-两个 AI 流程统一使用 **GPT-6 Astra**（`gpt-6-astra`）和 `high` 推理档位，配置集中在 `scripts/ai-config.mjs`。GPT-6 Astra 负责识别与编排，效果图仍由其调用 `image_gen` 工具生成；不把编排模型与图像工具的模型版本混称。
+两个 AI 流程统一使用 **GPT-6 Astra**（`gpt-6-astra`），识别为 `medium`、效果图编排为 `high`，配置集中在 `scripts/ai-config.mjs`。GPT-6 Astra 负责识别与编排，效果图仍由其调用 `image_gen` 工具生成；不把编排模型与图像工具的模型版本混称。
 
 最低需要 Codex CLI **0.153.1**。旧版使用 `npm i -g @openai/codex@latest` 升级，再运行 `codex --version` 和 `npm run doctor`；版本不兼容时状态检查和任务预检会提示升级。新版分页 rollout 的图片结果格式已兼容，且只读取/清理本次任务产物。Codex 暂不可用时只影响 AI 功能，不影响普通 3D 编辑。
 
@@ -360,6 +370,8 @@ npm run doctor
 - 「保存工程」下载 `.home3d`，包含当前场景引用的上传模型、参考照片、户型原图和设置，可跨浏览器恢复；「打开」兼容工程包和旧 JSON，确认后替换且可撤销。「仅布局」保留轻量 JSON v1，并明确省略范围。
 - 工程包不包含未用上传库、AI 历史、撤销栈或相机姿态；本地存储绑定浏览器源（含端口）。换浏览器、换电脑或清数据前先保存工程。
 - 关闭 AI 面板会继续当前页面中的渲染，顶栏显示任务状态；重新打开可查看或取消，刷新/关闭页面会中止请求。新历史保存当次输入、提示词、参考图及结果，旧记录仅显示结果，历史写入失败仍可下载图片。
+
+精确户型的原图放大、识别等待与核对均为原生顶层模态，提供关闭/放弃与 Esc；背景不会响应点击、键盘或相机操作，手机短屏也保留操作区。多边形和复式层信息可保存，但多图自动配准、自由墙节点绘制与 CAD/IFC 交换尚未实现。公开回归使用合成样例；姊妹项目的私有九图只发布去敏摘要，不作为本仓库真实重跑结果。详见[能力与验证边界](docs/precision-floorplan/README.md)。
 
 完整维护命令见上方 [Maintainer commands](#maintainer-commands)。日常使用 `npm run check`，启动 dev server 后运行 `npm run check:ui`；常规 AI 回归为模拟，不消耗额度。显式真实验证使用 `npm run smoke:ai:live -- --run`，执行一次识别和一次出图并消耗额度，不属于两个总门禁。`npm run smoke:pages` 独立检查静态子路径、资源和 AI 降级提示，不发布网站。
 

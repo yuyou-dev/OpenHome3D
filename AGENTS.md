@@ -45,11 +45,11 @@ IndexedDB 键约定：
 - `generateLayout` 只依赖传入的 `LayoutOpts`（房型、种子、salt、尺寸、密度、模型集，以及可选的 `doors/preserved/decorOnly`），相同输入必须产生相同输出。store 传入的房间 seed 为 `${seed}@${room.id}`，`RoomDef.salt` 为单房间重排计数。引擎 id `f1…` 由 store 加 `${roomId}:` 前缀，合并保留件时保证唯一，用户操作 id 用 `uid()`。
 - `FurnitureInstance.source` 为 generated/manual，`decor` 标识可随密度更新的装饰，`locked` 显式保留；旧数据缺 source 时保守保留。手工添加/复制/移动/旋转/换模/参数修改标 manual。取消「换一换时保留」可重新参加生成。
 - 尺寸编辑保留家具，仅夹取位置；房型编辑保留家具和门窗。密度仅重建未保护的 generated+decor（含附属件）；shuffle/rebuild/seed 操作保留 manual/locked/旧数据，并将保留件作为生成碰撞障碍。引擎新增保留件参数后仍须保证确定性、唯一 ID。
-- `openingIntervals/fitOpening/reconcileOpenings` 是真实合法墙段的统一来源：内开口必须落在对应共享段，外开口避共享段。房间增删/移动/缩放、门窗编辑与水合后规范化；断开的开口移除，`structureNotice` 经常驻 Sidebar 展示并清除，不在 store 内依赖 UI toast。
+- 旧矩形模式中，`openingIntervals/fitOpening/reconcileOpenings` 是合法墙段的统一来源：内开口必须落在对应共享段，外开口避共享段。房间增删/移动/缩放、门窗编辑与水合后规范化；断开的开口移除，`structureNotice` 经常驻 Sidebar 展示并清除，不在 store 内依赖 UI toast。
 - 门区由 `doorZonesFor(room, home)` 传到 `LayoutOpts.doors`，包含邻居门镜像。placeWall/placeRun 避开门区外扩 `DOOR_CLEAR=0.35`；front/center/free/ring 未避门。极小房间允许达到尝试上限后丢弃无法放置的家具。
 - `src/gen/templates.ts` 的 `buildHome(templateId, seed)` 提供 studio/1br/2br 确定性模板；`src/gen/importPlan.ts` 的 `planJsonToHome` 将识别 JSON 转为 HomeDef，fixtures 在 `scripts/fixtures/`。
-- 户型转换保持类型映射（garage/office/other → office、原名保留，balcony 直通）、重叠修复、近邻共边吸附且不撞第三房、内墙窗丢弃和 applied/dropped 报告。门窗支持 `at/widthM`、入户门 `wall`、打通 `open:true`；非法提示回落到默认位置和尺寸。识别 prompt/schema 调整时评估 Home3D 的识别部分，勿假定三个仓库完全一致。
-- `src/three/HomeEditor.tsx` 只在 `planTab === 'home'` 时挂载，进入时 `requestView('top')`。房间必须是不重叠矩形，L 形用两个矩形拼。家具不允许跨房间拖动，越界夹取回所属房间。房间小于家具时仅归中，不能暗中缩模。
+- 旧 v1 户型转换保持类型映射（garage/office/other → office、原名保留，balcony 直通）、重叠修复、近邻共边吸附且不撞第三房、内墙窗丢弃和 applied/dropped 报告。门窗支持 `at/widthM`、入户门 `wall`、打通 `open:true`；非法提示回落到默认位置和尺寸。识别 prompt/schema 调整时评估 Home3D 的识别部分，勿假定三个仓库完全一致。
+- `src/three/HomeEditor.tsx` 只在 `planTab === 'home'` 时挂载，进入时 `requestView('top')`。旧模板/矩形模式的房间必须是不重叠矩形，L 形用两个矩形拼；矩形编辑器不得操作专业结构。家具不允许跨房间拖动。旧矩形房间小于家具时仅归中，不暗中缩模；专业模式按真实多边形及墙、门区、楼梯和挑空检验落位。
 - 新增/编辑门窗不自动重排家具，避让在下次重排生效；UI「换一换」调用 `reshuffleFurniture()`。`rebuild()` 仍是 store 动作，移除前检查脚本调用。
 
 ## 渲染、相机与截图
@@ -57,7 +57,7 @@ IndexedDB 键约定：
 - 家具与壳体使用 `MeshToonMaterial`、共享四阶 `toonGradientMap()`、castShadow/receiveShadow。`src/lib/toon.ts` 的 `applyToon` 保留源资产颜色和贴图，按源材质 uuid 共享缓存；`userData.shared` 材质禁止 dispose，缩略图清理必须跳过。源资产有负缩放，使用 DoubleSide。
 - 参数化/壳体颜色来自 `src/models/palette.ts` 的 PALETTE/SHELL，不散落 hex。`parametric/shared.tsx` 的 `Edged/Rounded/Mat` 接受 color。硬边用 `drei <Edges lineWidth={1}>`，圆滑件用 `<Outlines thickness={1}>`；`EdgedModel.edgeModeFor` 按几何体缓存，RoundedBox 恒用 Outlines。
 - 灯光保持暖白半球天光、淡紫地面反照、微暖平行光、淡紫 N8AO；画布背景为 `src/styles.css` 奶油径向渐变。
-- 壳体由 `src/gen/walls.ts` 的 `deriveWalls(home, wallHeight)` 推导，不另存墙体状态。共边内墙只渲染一次，先减 `fullHeight` 打通区间再切段，完全打通为零墙段。外墙内皮贴房间边，向外鼓 `WALL_T=0.12`；阳台外缘通高开口渲染 `PARAPET_H=1.05` 护栏半墙。cutaway 仅注册外墙 normal（含护栏），内墙/隔墙永不隐藏。floorSlab 开为 homeAABB 整块楼板，关为逐房间薄板。
+- 旧矩形模式的壳体由 `src/gen/walls.ts` 的 `deriveWalls(home, wallHeight)` 推导，不另存墙体状态。共边内墙只渲染一次，先减 `fullHeight` 打通区间再切段，完全打通为零墙段。外墙内皮贴房间边，向外鼓 `WALL_T=0.12`；阳台外缘通高开口渲染 `PARAPET_H=1.05` 护栏半墙。cutaway 仅注册外墙 normal（含护栏），内墙/隔墙永不隐藏。floorSlab 开为 homeAABB 整块楼板，关为逐房间薄板。
 - 正交轴测为默认。orbit target 基准为 homeAABB 中心、y=0.8；AABB 位移只按 delta 平移相机和 target，不拉回用户平移。初始/reset/投影切换由 `src/three/cameraFit.ts` 适配整宅尺寸；`camera.userData.fitZoom/fitDistance` 是状态栏 100% 基准，普通编辑不得持续重置视角。
 - 右键、Shift+左键和 `src/ui/uiStore.ts` 的会话态 panMode 控制平移；不要加回 `zoomToCursor`。
 - `src/three/runtime.ts` 是 UI ↔ 3D 总线，负责视角请求、缩放通知、场景就绪和截图；UI 不反向 import 场景组件。dev 的 `window.__store`、`window.__three` 用于测试；Canvas onCreated 的 root state 是快照，读实时 camera/controls/size 用 `__three.get()`。
@@ -87,10 +87,25 @@ IndexedDB 键约定：
 - 新历史记录为 `RenderRecord{version,image,source,prompt,referenceImages}`，索引和记录一起写入；旧字符串记录只展示结果，不拿当前截图冒充历史输入。历史写入失败保留可下载的结果；效果图与源图/提示词/参考图始终属于同一任务。
 - understand/render 共用单飞槽，登录预检后须再次核验并原子占槽，保证只有一个请求进入 exec。busy 响应带时间与任务种类；对应 cancel 端点和客户端断连都要中止任务并释放槽位。
 - codex 的 MCP 孙进程可能继承 stdio 管道，因此 `runCodex` 使用 `detached:true` + 进程组 SIGKILL；被杀/超时通过 exit 收尾，正常完成通过 close 保全 stdout。
-- 两个 exec 路径显式传 `--model gpt-6-astra` 和 `model_reasoning_effort="high"`，共用 `scripts/ai-config.mjs` 的配置，不能依赖全局 Codex 默认配置；模型/推理档位断言应进入模拟回归。CLI 最低版本为 0.153.1（官方首次加入 Astra），status、请求预检和 doctor 应共用版本要求，过旧时提示 `npm i -g @openai/codex@latest` 并阻止任务。GPT-6 Astra 负责识别/编排，效果图仍由 `image_gen` 工具提供，不把两者模型版本混称。
+- 两个 exec 路径显式传 `--model gpt-6-astra`，共用 `scripts/ai-config.mjs`；识别为 `PLAN_REASONING_EFFORT=medium`，重绘编排为 `CODEX_REASONING_EFFORT=high`，不能依赖全局 Codex 默认配置；模型/推理档位断言应进入模拟回归。CLI 最低版本为 0.153.1（官方首次加入 Astra），status、请求预检和 doctor 应共用版本要求，过旧时提示 `npm i -g @openai/codex@latest` 并阻止任务。GPT-6 Astra 负责识别/编排，效果图仍由 `image_gen` 工具提供，不把两者模型版本混称。
 - understand 使用 `codex exec --model gpt-6-astra --ephemeral -s read-only --output-schema`，`-o` 落盘后解析，超时由脚本常量定义。应用结果时调用 `importHome(home, imageUrl)`，不要把布局与原图拆成两次编辑。
 - Pages/preview/build 没有本机 AI 端点：界面显示“本机运行可用”并禁用执行入口，不把静态演示当成服务故障。
 - render 要求恰好一次 image_gen。当前适配依赖 `-s workspace-write` 和保留 rollout（不能加 `--ephemeral`）；prompt 前加 `--`，避免 `-i` 变参吞掉 prompt。
 - 图片只从**本次任务所属**的 rollout 内联 base64 提取，不相信 saved_path 或模型文本路径。兼容旧平铺事件与 Codex 0.153 的 `item_completed → item{type:"Extension",kind:"image_gen.generation"}` 嵌套结果；形状以提取函数和 mock 测试为准；清理只能删除本次任务产物，不能以全局“最新会话”猜所有权。本服务单飞不代表其它 Codex 任务不存在。
 - 图像 prompt 保持英文：默认写实摄影在 `src/ui/modals/AIRender.tsx`，风格 fragment 在 `src/lib/aiPresets.ts`。参考照片经 `-i` 附带，视图在前；比例通过 prompt 请求，不能承诺输出精确尺寸。
 - `AIRender.cropToAspect` 先铺 `--paper` 底色再裁剪，避免透明像素变黑影响模型构图；对比滑块使用同一输入。保留 same margins/no cropping/zooming 提示，但不承诺图生图完全保留构图。
+
+## 精确户型与导入交互
+
+- 专业模式以 `home.architecture` 为权威结构；`home.rooms` 的 AABB 仅兼容选择与家具局部坐标，不得据此造墙/补地板、计算净面积或执行旧矩形吸附修复。
+- `scripts/plan-schema.mjs` 是识别 schema/prompt 的唯一来源。wire v2 在完整原图像素坐标描图，`source.scale` 为米/像素，`importArchitecture` 一次转换成米制 v1；墙/洞高度、层标高与楼梯升高使用米。不得修改原始模型响应或依据其反写真值。
+- 独立墙中心线/厚度、门窗 `wallId` 宿主、空间多边形、楼层、挑空与多跑楼梯共用 `architectureGeometry` 的几何计算；渲染、家具可用区、工程校验不可各自另算一套。
+- 专业结构编辑走 `setArchitecture`，保留原图和历史；工程导入在 IDB 写入前校验建筑几何与家具。两种工程格式均保留专业结构与合法家具缩放；完整 `.home3d` 另保留原图与引用资源。
+- 统一比例校准同时缩放梯段平面与家具，保留竖向高度并更新尺寸冲突；不分轴拉伸图纸。`ledge` 不生成普通地板或家具；未知构件/高度保留提示。
+- 栏板上的窗允许高过宿主，普通墙/门洞高度不放宽；导入仅对不超过 2 像素的横向洞口越界、栏杆 open 高度及明确 ledge 语义规范化，并逐项写 warning。
+- `stairConnection` 为本层 `up/down/unknown`，梯段路径仍按向上顺序。下接楼梯顶端对齐本层，踏步在层下并扣除楼板孔；零升高/零级平台合法，未知方向不编造梯段。当前按楼层单独显示，不能宣称多张复式图已自动配准。
+- 原图放大、识别和核对统一用 `PlanDialog`：portal 到 body，原生 `showModal()` 顶层与 `data-modal` 保证背景 inert；关闭/Escape 同步 React 状态，标题和操作区固定，图纸适应剩余高度。
+- 选图后立即显示可放弃的模态进度；成功只生成 pending 草稿并自动核对，显式「导入」才调用 `importHome(home, imageUrl)`。取消/卸载使图片准备、识别及排队迟到响应失效；放弃队列不能取消别人的任务。导入失败在弹窗内显示并保留草稿。
+- 识别服务上限 600 秒。普通测试模拟全部 AI 路由；真实调用按任务范围另行授权。`smoke:architecture`、`smoke:precision:ui` 使用公开合成 fixture；个人原图、文件名清单、人工真值、原始识别与工程证据不得发布，`.local/` 必须保持 Git 忽略。
+- 截图经真实 UI 按钮切换视角并等待相机稳定；HMR 后裸动态导入 runtime 可能取得另一份事件总线，不足以证明实际视角已切换。
+- 能力与验证边界见 `docs/precision-floorplan/README.md`；本地姊妹项目私有九图结果只作移植背景，不冒充 OpenHome3D 独立真实测试。发布前仍需本仓库 `check/check:ui/smoke:pages/companion:test/scan:public`。

@@ -1,64 +1,35 @@
-# OpenHome3D maintenance handoff · 2026-09-05
+# OpenHome3D precision floor-plan handoff · 2026-09-05
 
-This handoff records the shared maintenance update from Home3D-Cartoon and the explicit GPT-6 Astra selection for local AI. Usage is in [README.md](README.md); implementation contracts are in [AGENTS.md](AGENTS.md).
-
-## Scope and repository state
-
-- Work is based on `main` at `8ec8d1e`, with existing local modifications preserved. The user has authorized committing and publishing the complete maintenance update. Publication follows the existing main-push → GitHub Pages workflow; GitHub Actions records the deployment outcome.
-- OpenHome3D keeps its own `openhome3d` browser-storage key, Pages base URL, GitHub community links, installation/upgrade/uninstall runbooks, Companion plugin and MIT/CC0 licensing.
-- Shared changes are ported by responsibility rather than by replacing the repository. No local credentials, personal paths or private AI proxies belong in the public source.
+This update ports the precision floor-plan milestone and the native modal import workflow from Home3D-Cartoon through `f3118af`. It preserves OpenHome3D's storage key, brand, Pages asset paths, installation lifecycle, Companion and community flows. The preceding maintenance record is archived in [maintenance handoff](docs/maintenance-handoff-2026-09-05.md).
 
 ## Delivered behavior
 
-| Area | Result and implementation entry |
+- Architectural plans retain real polygons, independent walls, wall-hosted openings, level metadata, voids, ledges and multi-flight stairs. Derived rectangular bounds remain only for selection and furniture coordinates; legacy template editing stays compatible.
+- Pixel geometry converts once to meters. A verified distance calibrates scale uniformly; uncertain dimensions and inferred heights remain visible. Structural and furniture validation share the same geometry, and project save/open plus undo/redo preserve the imported structure.
+- Furniture matching uses recognized type, dimensions and orientation, validates the usable polygon and obstacles, and reports unmatched or adjusted pieces. Bay ledges and voids are not ordinary furniture floors.
+- Recognition and render orchestration explicitly select `gpt-6-astra`; `scripts/ai-config.mjs` sets recognition to `medium` and render orchestration to `high`. Actual image generation still uses `image_gen`. CLI compatibility and login preflight remain in place; the recognition timeout is 600 seconds.
+- Choosing an image opens a cancellable native modal. Success automatically opens the source/geometry review; only **Import** atomically replaces the scene and image. Cancel/Escape invalidates late replies. Import failure retains the draft with an in-dialog error. Source-image viewing has Close/Escape, focus isolation and full-image fitting on desktop and mobile.
+
+## Validation and provenance
+
+OpenHome3D must be validated independently after the complete port. Current synchronization checks and their actual results are recorded below by the release maintainer; previous maintenance passes are historical and do not establish this revision's status.
+
+| Check | This synchronization |
 | --- | --- |
-| Local Codex model | Recognition and render orchestration explicitly use `gpt-6-astra` via `--model`. Image generation remains a call to `image_gen`; GPT-6 Astra names the orchestrator, not the image tool's underlying model. Both routes share `scripts/ai-config.mjs`, fixing the model to `gpt-6-astra` and reasoning effort to `high`. CLI 0.153.1 is the minimum; status, request preflight and doctor check compatibility. |
-| Preservation during editing | Hand-added/edited, locked and legacy pieces survive regeneration. Decoration density rebuilds only unprotected automatic decor; room resizing clamps positions without regenerating furniture. `src/state/store.ts`, `src/gen/layout.ts`, `src/ui/SelectionPanel.tsx`. |
-| Opening consistency | A shared set of legal wall intervals validates and repairs openings after room changes; disconnected openings are removed with a notice. Room-type changes preserve furniture and openings. `src/state/home.ts`. |
-| Portable project files | `.home3d` saves the current scene with referenced uploaded GLBs, reference photos, floor-plan image and settings. Open validates before writing, remaps model/instance IDs, preserves old resources and supports undo. Legacy JSON stays compatible with explicit omission guidance. `src/lib/projectPackage.ts`, `src/ui/ProjectFiles.tsx`. |
-| Recovery, search and camera | Session history, no-op redo preservation, imported-image recovery, bilingual search and adaptive whole-home framing; screenshots use the live camera and restore its state. `src/state/history.ts`, `src/models/search.ts`, `src/three/cameraFit.ts`, `src/three/runtime.ts`. |
-| AI continuity and history | Login/busy status refreshes; closing the panel keeps rendering in the page; cancellation isolates late responses. Each new history item retains its own input, prompt, reference images and result. Storage failure leaves a downloadable result. `src/state/aiTask.ts`, `src/lib/ai.ts`, `src/lib/useAiStatus.ts`. |
-| Middleware and regression workflow | Single-flight ownership survives login races and cancellation. Image extraction and cleanup only touch the current task's rollout. Browser helpers mock all AI routes, report errors and isolate SSR optimizer state. New package, editor-invariant, runtime and AI-flow regressions complement the existing tests. |
-| Documentation | README describes actual file formats, background-task limits and local-versus-Pages behavior. AGENTS consolidates the shared contracts while retaining public deployment and Companion rules. |
+| `npm run check` | Passed independently in OpenHome3D: build, 205 layout checks, editor/state/camera regressions, 21 mocked AI checks, 23 architectural geometry checks, 37 import checks, architectural state and invalid-input acceptance cases. |
+| `npm run check:ui` (including `smoke:precision:ui`) | Release maintainer to record final run |
+| `npm run smoke:pages` | Release maintainer to record final run |
+| `npm run companion:test` | Release maintainer to record final run |
+| `npm run scan:public` | Release maintainer to record final run |
 
-Model reference: [GPT-6 Astra official documentation](https://developers.openai.com/api/docs/models/gpt-6-astra). Codex 0.153.1 first added Astra support ([official changelog](https://learn.chatgpt.com/docs/changelog)); use `npm i -g @openai/codex@latest` to upgrade. An initial live recognition attempt using CLI 0.144.5 was rejected by the service; the CLI has been upgraded to 0.153.4. Post-upgrade recognition passed, and a second compatibility issue was fixed: paginated rollouts store images under `item_completed → item{type:"Extension",kind:"image_gen.generation"}`. Both editions now extract that inline result while retaining old formats and ownership checks.
+Normal browser regressions use isolated profiles and mock every AI route. Public architecture fixtures are synthetic. The local sibling's nine private floor plans were tested with real GPT-6 Astra before this port; [the sanitized summary](docs/precision-floorplan/results.md) records that separate provenance. This synchronization does not claim a fresh real nine-image run in OpenHome3D. Personal images, filenames, manual ground-truth coordinates, raw model results and generated private projects are excluded from public source.
 
-## Validation
+For deliberate account-consuming validation, `npm run smoke:ai:live -- --run` performs one synthetic recognition and one generated image; it is excluded from normal checks. Start the dev server before browser tests, use its `.port` cache or `APP_URL`, and keep user evidence outside tracked files.
 
-Validation was performed independently in this repository on macOS, Node 20.20.0 and system Chrome. Normal browser and middleware regressions used simulated AI; the live results are listed separately.
+## Release and remaining limits
 
-| Command | Status |
-| --- | --- |
-| `npm run check` | Passed: build, 205 layout checks, editor/search/camera/runtime checks; final AI middleware regression has 21 offline checks. |
-| `npm run check:ui` | Passed: UI, interactions, portable projects, AI flow and two-viewport overflow audit. Updated CLI-warning flow retested successfully. Mobile AI panel at 390×844: zero console errors. |
-| `npm run smoke:pages` | Passed: Pages build, subpath assets, loaded scene, local-only AI message, disabled render; no API requests or console/HTTP errors. |
-| `npm run companion:test` | All 12 checks passed. |
-| `npm run scan:public` | Passed. |
-| Live Codex/model check | Passed: GPT-6 recognition in the local sibling (5 rooms, 57.105 s); repaired OpenHome3D render endpoint returned PNG in 65.221 s. Middleware/configuration/extraction are identical in both editions. |
-| `npm run doctor -- --json` | Ready: CLI 0.153.4, gpt-6-astra, high, logged in. |
+The complete milestone and interaction fixes are intended for this authorized main release. Main pushes trigger the existing GitHub Pages workflow; successful publication is established by the corresponding Actions deployment, not by a local commit. The release maintainer records the final commit and deployment outcome after pushing.
 
-Start the dev server before browser checks:
+Pages and preview/build provide no local AI endpoints. Preserve `import.meta.env.BASE_URL` on every public asset URL and independently verify the static deployment. Installation, upgrade, uninstall and Companion runbooks remain the OpenHome3D-specific source of truth.
 
-```bash
-npm run dev
-```
-
-Then run in another terminal:
-
-```bash
-npm run check
-npm run check:ui
-npm run smoke:pages
-npm run companion:test
-npm run scan:public
-```
-
-Browser tests read `.port`; `APP_URL` selects another instance and `CHROME_PATH` selects Chrome. Regular AI tests are mocked and consume no credits. `npm run doctor` checks the local CLI version/login environment but does not generate an image. For deliberate live validation, `npm run smoke:ai:live -- --run` performs one recognition and one image-generation request through temporary middleware (the dev server supplies only the isolated default scene screenshot); it consumes account credits and is excluded from `check/check:ui`. Add `--render-only` to skip already-verified recognition. The sample confirms connectivity and extraction, not future account access or guaranteed rendering fidelity. Production builds retain the existing large-chunk warning (about 1.80 MB JS, gzip 544 KB).
-
-## Boundaries for the next maintainer
-
-- `.home3d` packages only current referenced resources. AI render history, unused uploads, the undo stack and camera pose remain outside the package. Binary resources are embedded in JSON without compression.
-- Render tasks survive panel closure within the current page only. Refreshing or closing the page terminates the request; old image-only history must never borrow the current screenshot for comparison.
-- Furniture smaller-room handling, rectangular rooms, no cross-room furniture drag, partial door avoidance and AI geometry/composition limits remain intentional; see README.
-- Static Pages cannot run local AI. Preserve `import.meta.env.BASE_URL` for assets when porting future changes, and validate the Pages build separately.
-- A release requires reviewing the complete working-tree diff, including modifications that predate this task. Main pushes publish Pages; do not treat a local sync as a published release.
+Architectural levels are currently viewed individually; separate duplex images are not automatically registered into one building. Free wall-node editing, DWG/DXF/IFC exchange and construction-code verification are not implemented. Raster recognition, heights and furniture substitutions require review against measurements. Detailed contracts and usage are in [the module guide](docs/precision-floorplan/README.md), [interaction notes](docs/precision-floorplan/import-interaction.md) and [AGENTS.md](AGENTS.md).
