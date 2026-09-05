@@ -1,19 +1,18 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { ReactCompareSlider, ReactCompareSliderImage } from 'react-compare-slider'
 import { useStore } from '../../state/store'
+import { useAiTask } from '../../state/aiTask'
+import { useAiStatus } from '../../lib/useAiStatus'
 import { captureFittedScreenshot, captureScreenshot, captureUnbiasedScreenshot } from '../../three/runtime'
 import { useUI } from '../uiStore'
 import { GhostButton, IconButton, PrimaryButton } from '../components'
 import {
-  aiRender,
-  aiStatus,
   collectReferencePhotos,
-  historyAdd,
   historyImage,
+  historyRecord,
   historyList,
   historyRemove,
   nearestAspect,
-  type AiStatus,
   type RenderMeta,
 } from '../../lib/ai'
 import { PRESET_GROUPS, presetFragments, presetLabel } from '../../lib/aiPresets'
@@ -71,7 +70,7 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 async function cropToAspect(dataUrl: string, aspect: string): Promise<string> {
   const [aw, ah] = aspect.split(':').map(Number)
   const dims = await dataUrlSize(dataUrl)
-  if (!dims || !aw || !ah) return dataUrl
+  if (!dims || !aw || !ah) throw new Error('无法读取截图 Cannot read screenshot')
   const target = aw / ah
   const src = dims.w / dims.h
   let sw = dims.w
@@ -85,7 +84,7 @@ async function cropToAspect(dataUrl: string, aspect: string): Promise<string> {
   canvas.width = sw
   canvas.height = sh
   const ctx = canvas.getContext('2d')
-  if (!ctx) return dataUrl
+  if (!ctx) throw new Error('无法准备截图 Cannot prepare screenshot')
   ctx.fillStyle = paperColor()
   ctx.fillRect(0, 0, sw, sh)
   ctx.drawImage(img, (dims.w - sw) / 2, (dims.h - sh) / 2, sw, sh, 0, 0, sw, sh)
@@ -104,6 +103,8 @@ function HistoryThumb({ meta, active, onPick }: { meta: RenderMeta; active: bool
     let ok = true
     void historyImage(meta.id).then((u) => {
       if (ok) setSrc(u)
+    }).catch(() => {
+      if (ok) setSrc(null)
     })
     return () => {
       ok = false
@@ -123,28 +124,20 @@ export default function AIRender() {
   const closeModal = useUI((s) => s.closeModal)
   const pushToast = useUI((s) => s.pushToast)
   const furniture = useStore((s) => s.furniture)
-  const seed = useStore((s) => s.seed)
 
   const [shot, setShot] = useState<string | null>(null)
-  /** view frame cropped to the render's aspect — API input and 3D compare side */
-  const [compareShot, setCompareShot] = useState<string | null>(null)
-  const [result, setResult] = useState<{ image: string; meta: RenderMeta } | null>(null)
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT)
-  const [format, setFormat] = useState('match view')
-  /** 'fit' = zoom the room to fill the frame; 'editor' = capture the editor as-is */
-  const [framing, setFraming] = useState<'fit' | 'editor'>('fit')
-  const [presets, setPresets] = useState<Record<string, string>>({})
-  const [rendering, setRendering] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [status, setStatus] = useState<AiStatus | null>(null)
+  const { form, phase, error, result, historyRevision, updateForm, setResult, start, cancel } = useAiTask()
+  const prompt = form.prompt ?? DEFAULT_PROMPT
+  const { format, framing, presets } = form
+  const rendering = phase === 'preparing' || phase === 'running' || phase === 'saving'
+  const compareShot = result?.record.source
+  const status = useAiStatus()
   const [history, setHistory] = useState<RenderMeta[]>([])
   const [photoCount, setPhotoCount] = useState(0)
-  const [refPhotos, setRefPhotos] = useState<string[]>([])
   const [lightbox, setLightbox] = useState(false)
   const [zoom, setZoom] = useState<'fit' | 'full'>('fit')
-  const abortRef = useRef<AbortController | null>(null)
 
-  const model = status?.model ?? 'codex image_gen'
+  const model = status?.model ?? 'GPT-6 Astra · image_gen'
   const canRender = !!shot && !rendering && !!status?.codex?.available && !status?.busy
 
   // capture the current 3D view once when the modal opens
@@ -155,107 +148,55 @@ export default function AIRender() {
     return () => cancelAnimationFrame(t)
   }, [])
 
-  // status + history + reference photos on open
   useEffect(() => {
     let alive = true
-    void aiStatus().then((s) => {
-      if (alive) setStatus(s)
-    })
     void historyList().then((h) => {
       if (alive) setHistory(h)
+    }).catch(() => {
+      if (alive) pushToast('无法读取渲染历史 Cannot read render history')
     })
-    void collectReferencePhotos(furniture).then(({ count, images }) => {
-      if (!alive) return
-      setPhotoCount(count)
-      setRefPhotos(images)
+    return () => { alive = false }
+  }, [historyRevision, pushToast])
+
+  useEffect(() => {
+    let alive = true
+    void collectReferencePhotos(furniture).then(({ count }) => {
+      if (alive) setPhotoCount(count)
+    }).catch(() => {
+      if (alive) pushToast('无法读取参考照片 Cannot read reference photos')
     })
-    return () => {
-      alive = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => { alive = false }
+  }, [furniture, pushToast])
 
   const typeCount = new Set(furniture.map((f) => f.modelId)).size
-  const current = result?.image ?? shot
+  const current = result?.record.image ?? shot
   const currentIsRender = !!result
 
-  const onRender = async () => {
-    if (!shot || rendering) return
-    setError(null)
-    setRendering(true)
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-    // aspect + view frame. Best-fit re-frames the camera so the room fills the
-    // image at the target ratio; editor mode captures the viewport as-is.
-    // Both paths drop the editor's -10% framing bias (the image model centers
-    // the subject on its own — a biased input guarantees a mismatched render),
-    // and fit mode picks the aspect BEFORE framing so the post-crop never clips.
-    let aspect: string
-    let frame: string | null
-    if (framing === 'fit') {
-      if (format === 'match view') {
-        const probeDims = shot ? await dataUrlSize(shot) : null
-        aspect = nearestAspect(probeDims?.w ?? 4, probeDims?.h ?? 3)
-      } else {
-        aspect = format
-      }
+  const onRender = () => {
+    if (!shot || !canRender) return
+    const snapshot = useStore.getState()
+    void start(async () => {
+      const dims = await dataUrlSize(shot)
+      const aspect = format === 'match view' ? nearestAspect(dims?.w ?? 4, dims?.h ?? 3) : format
       const [aw, ah] = aspect.split(':').map(Number)
-      frame = await captureFittedScreenshot(aw / ah)
-    } else {
-      const dims = shot ? await dataUrlSize(shot) : null
-      aspect = format === 'match view' ? nearestAspect(dims?.w ?? 4, dims?.h ?? 3) : format
-      frame = (await captureUnbiasedScreenshot()) ?? shot
-    }
-    if (!frame) {
-      setRendering(false)
-      setError('could not capture the 3D view')
-      return
-    }
-    // crop the view frame to the exact render aspect — the AI output then
-    // matches the 3D side 1:1 in ratio and framing
-    const cropped = await cropToAspect(frame, aspect)
-    setCompareShot(cropped)
-    // style presets are prompt-driven: fragments append AFTER the base prompt,
-    // so the structure lock stays intact
-    const fragments = presetFragments(presets)
-    const finalPrompt = fragments.length
-      ? `${prompt.trim()}\n\n${fragments.join('\n')}`
-      : prompt
-    const res = await aiRender({
-      prompt: finalPrompt,
-      image: cropped,
-      images: refPhotos,
-      aspect,
-      signal: ctrl.signal,
+      const frame = framing === 'fit'
+        ? await captureFittedScreenshot(aw / ah)
+        : await captureUnbiasedScreenshot()
+      if (!frame) throw new Error('无法截取 3D 视图 Could not capture the 3D view')
+      const cropped = await cropToAspect(frame, aspect)
+      const references = await collectReferencePhotos(snapshot.furniture)
+      const fragments = presetFragments(presets)
+      return {
+        image: cropped,
+        prompt: fragments.length ? `${prompt.trim()}\n\n${fragments.join('\n')}` : prompt,
+        images: references.images,
+        aspect,
+        seed: snapshot.seed,
+        presets: PRESET_GROUPS.map((g) => presetLabel(g.id, presets[g.id]))
+          .filter((label): label is string => !!label)
+          .map((label) => label.split(' ')[0]),
+      }
     })
-    setRendering(false)
-    abortRef.current = null
-    if (!res.ok) {
-      if (res.code === 'busy') setError('另一个 codex 任务进行中,请稍候 Another codex task is running…')
-      else if (res.error !== 'cancelled') setError(res.error)
-      return
-    }
-    const meta: RenderMeta = {
-      id: `r${Date.now().toString(36)}`,
-      ts: Date.now(),
-      model: res.model,
-      aspect: res.aspect,
-      durationMs: res.durationMs,
-      seed,
-      presets: PRESET_GROUPS.map((g) => presetLabel(g.id, presets[g.id]))
-        .filter(Boolean)
-        .map((l) => (l as string).split(' ')[0]),
-    }
-    setResult({ image: res.image, meta })
-    setError(null)
-    void historyAdd(meta, res.image).then(setHistory)
-    pushToast(`完成 Done · ${(res.durationMs / 1000).toFixed(1)} s`)
-  }
-
-  const onCancel = () => {
-    abortRef.current?.abort()
-    setRendering(false)
-    pushToast('已取消 Cancelled')
   }
 
   const onCopy = async () => {
@@ -271,30 +212,33 @@ export default function AIRender() {
 
   const onDelete = () => {
     if (result) {
-      void historyRemove(result.meta.id).then(setHistory)
-      setResult(null)
-      setCompareShot(null)
-      pushToast('效果图已删除 Render deleted')
+      void historyRemove(result.meta.id).then((next) => {
+        setHistory(next)
+        setResult(null)
+        pushToast('效果图已删除 Render deleted')
+      }).catch(() => pushToast('删除失败 Could not delete render'))
     } else if (shot) {
       setShot(null)
     }
   }
 
   const openHistoryItem = (meta: RenderMeta) => {
-    void historyImage(meta.id).then((u) => {
-      if (u) setResult({ image: u, meta })
-    })
+    void historyRecord(meta.id).then((record) => {
+      if (record) setResult({ record, meta })
+    }).catch(() => pushToast('无法读取效果图 Cannot read render'))
   }
 
   return (
     <div className="ai-panel" data-modal="">
-      <div className="modal-head">
+      <div className="modal-head" style={{ flexWrap: 'wrap' }}>
         <span className="modal-title">AI 渲染 AI render</span>
         <span className="tag">{model}</span>
         <span style={{ flex: 1 }} />
-        <IconButton title="Close" onClick={() => closeModal()}>
-          ×
-        </IconButton>
+        {rendering ? (
+          <GhostButton title="关闭面板，任务继续；重新打开可查看或取消 Close panel; task continues" onClick={() => closeModal()}>
+            后台运行 Background
+          </GhostButton>
+        ) : <IconButton title="Close" onClick={() => closeModal()}>×</IconButton>}
       </div>
 
       <div className="ai-cols">
@@ -308,7 +252,7 @@ export default function AIRender() {
 
         <div className="ai-center">
           <div className="ai-canvas">
-            {result && !rendering ? (
+            {result && compareShot && !rendering ? (
               <div
                 className="ai-compare"
                 style={{ '--ar': result.meta.aspect.replace(':', '/') } as CSSProperties}
@@ -318,14 +262,14 @@ export default function AIRender() {
                 <ReactCompareSlider
                   itemOne={
                     <ReactCompareSliderImage
-                      src={compareShot ?? shot ?? ''}
+                      src={compareShot}
                       alt="3D view"
                       style={{ objectFit: 'contain', background: '#fff' }}
                     />
                   }
                   itemTwo={
                     <ReactCompareSliderImage
-                      src={result.image}
+                      src={result.record.image}
                       alt="AI render"
                       style={{ objectFit: 'contain', background: '#fff' }}
                     />
@@ -345,8 +289,8 @@ export default function AIRender() {
                 <div className="shimmer">
                   <div className="shimmer-bar" />
                 </div>
-                <span className="rendering-note">渲染中 Rendering with {model}…</span>
-                <button type="button" className="rendering-cancel" onClick={onCancel}>
+                <span className="rendering-note">{phase === 'preparing' ? '准备中 Preparing' : phase === 'saving' ? '保存中 Saving' : `渲染中 Rendering with ${model}`}…</span>
+                <button type="button" className="rendering-cancel" onClick={cancel} disabled={phase === 'saving'}>
                   取消 Cancel
                 </button>
               </>
@@ -355,11 +299,24 @@ export default function AIRender() {
           {result && (
             <div className="ai-meta">
               {result.meta.model} · {result.meta.aspect} · {(result.meta.durationMs / 1000).toFixed(1)} s ·{' '}
-              {photoCount} refs · seed {result.meta.seed}
+              {result.record.referenceImages?.length ?? '—'} refs · seed {result.meta.seed}
               {result.meta.presets && result.meta.presets.length > 0 && (
                 <> · {result.meta.presets.join(' / ')}</>
               )}
             </div>
+          )}
+          {result && !compareShot && <p className="hint">旧记录未保存输入图，仅显示效果图 Legacy render: source image unavailable.</p>}
+          {result?.record.prompt && (
+            <details className="hint" style={{ maxHeight: 180, overflowY: 'auto', margin: 8, flexShrink: 0 }}>
+              <summary>本次生成信息 Generation details</summary>
+              <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{result.record.prompt}</p>
+              <span>{result.record.referenceImages?.length ?? 0} 张参考照片 Reference photos</span>
+              {!!result.record.referenceImages?.length && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {result.record.referenceImages.map((src, i) => <img key={i} src={src} alt={`参考照片 Reference ${i + 1}`} style={{ width: 64, height: 64, objectFit: 'contain' }} />)}
+                </div>
+              )}
+            </details>
           )}
           <div className="ai-actions">
             <GhostButton disabled={!current} onClick={() => setLightbox(true)}>
@@ -374,33 +331,32 @@ export default function AIRender() {
             <GhostButton disabled={!current} onClick={() => void onCopy()}>
               复制 Copy
             </GhostButton>
-            <GhostButton disabled={!current} onClick={onDelete}>
+            <GhostButton disabled={!current || rendering} onClick={onDelete}>
               删除 Delete
             </GhostButton>
           </div>
         </div>
 
         <div className="ai-right">
-          {status === null && (
-            <div className="ai-warn">
-              本机功能:AI 渲染需要在本地运行(npm run dev)并登录 codex(codex login);线上 demo 没有 AI
-              后端。Local-only: the AI render needs the local dev server with codex logged in — the
-              online demo has no AI backend.
-            </div>
-          )}
           {status && !status.codex?.available && (
             <div className="ai-warn">
               {status.codex?.reason?.includes('not found')
                 ? '未检测到 codex CLI — 请先安装(npm i -g @openai/codex)。codex CLI not found on PATH.'
-                : 'codex 未登录 — 请在终端运行 codex login 后重试。Not logged in — run: codex login.'}
+                : status.codex?.reason?.includes('required for GPT-6')
+                  ? `Codex 版本过旧，请先升级。${status.codex.reason}`
+                  : 'codex 未登录 — 请在终端运行 codex login 后重试。Not logged in — run: codex login.'}
             </div>
           )}
+          {!status && <div className="ai-warn">{import.meta.env.PROD
+            ? '本机功能：运行 npm run dev 并执行 codex login 后可用。线上演示不提供 AI 服务。Local only: run the dev server with Codex logged in.'
+            : '正在连接本机 AI 服务 Connecting to the local AI service…'}</div>}
+          {rendering && <p className="hint">关闭面板后继续渲染；顶部 AI 按钮可查看或取消。刷新或关闭页面将中止任务。Continue in background; reopen from AI to check or cancel. Reloading ends the task.</p>}
           {error && <div className="ai-warn error">{error}</div>}
 
           <div className="form-row">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span className="lbl">提示词 Prompt</span>
-              <button type="button" className="reset-link" onClick={() => setPrompt(DEFAULT_PROMPT)}>
+              <button type="button" className="reset-link" onClick={() => updateForm({ prompt: DEFAULT_PROMPT })}>
                 ↺ default
               </button>
             </div>
@@ -408,7 +364,7 @@ export default function AIRender() {
               className="input"
               rows={8}
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => updateForm({ prompt: e.target.value })}
             />
           </div>
 
@@ -424,7 +380,7 @@ export default function AIRender() {
 
           <div className="form-row">
             <span className="lbl">比例 Format</span>
-            <select className="input" value={format} onChange={(e) => setFormat(e.target.value)}>
+            <select className="input" value={format} onChange={(e) => updateForm({ format: e.target.value })}>
               {FORMATS.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.label}
@@ -438,7 +394,7 @@ export default function AIRender() {
             <select
               className="input"
               value={framing}
-              onChange={(e) => setFraming(e.target.value as 'fit' | 'editor')}
+              onChange={(e) => updateForm({ framing: e.target.value as 'fit' | 'editor' })}
             >
               <option value="fit">最佳取景 Best fit — 房间充满画面</option>
               <option value="editor">编辑区视角 Editor view — 按当前画面</option>
@@ -460,7 +416,7 @@ export default function AIRender() {
                   <select
                     className="input"
                     value={presets[g.id] ?? 'none'}
-                    onChange={(e) => setPresets((p) => ({ ...p, [g.id]: e.target.value }))}
+                    onChange={(e) => updateForm({ presets: { ...presets, [g.id]: e.target.value } })}
                   >
                     {g.options.map((o) => (
                       <option key={o.id} value={o.id}>
@@ -514,24 +470,17 @@ export default function AIRender() {
               className={`lb-compare ${zoom}`}
               style={{ '--ar': (result?.meta.aspect ?? '4:3').replace(':', '/') } as CSSProperties}
             >
-              <span className="cmp-tag left">3D view</span>
-              <span className="cmp-tag right">AI render</span>
-              <ReactCompareSlider
-                itemOne={
-                  <ReactCompareSliderImage
-                    src={compareShot ?? shot ?? current}
-                    alt="3D view"
-                    style={{ objectFit: 'contain', background: '#fff' }}
+              {result && compareShot ? (
+                <>
+                  <span className="cmp-tag left">3D view</span>
+                  <span className="cmp-tag right">AI render</span>
+                  <ReactCompareSlider
+                    itemOne={<ReactCompareSliderImage src={compareShot} alt="3D view" style={{ objectFit: 'contain', background: '#fff' }} />}
+                    itemTwo={<ReactCompareSliderImage src={result.record.image} alt="AI render" style={{ objectFit: 'contain', background: '#fff' }} />}
                   />
-                }
-                itemTwo={
-                  <ReactCompareSliderImage
-                    src={result?.image ?? shot ?? current}
-                    alt="AI render"
-                    style={{ objectFit: 'contain', background: '#fff' }}
-                  />
-                }
-              />
+                </>
+              ) : <img src={current} alt={currentIsRender ? 'AI render' : '3D view'} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+
             </div>
           </div>
         </div>

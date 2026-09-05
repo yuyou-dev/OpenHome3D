@@ -6,15 +6,14 @@ import { useStore } from '../state/store'
 import { useUI } from '../ui/uiStore'
 import { homeAABB } from '../state/home'
 import { subscribeView, type ViewPreset } from './runtime'
+import { fitHomeCamera, VIEW_BIAS_Y } from './cameraFit'
 
-/** Reference framing point (y = wall mid-height); also the 100%-zoom reference. */
+/** Keep the established orbit height while fitting the complete shell. */
 const TARGET = new THREE.Vector3(0, 0.8, 0)
-/** Framing bias: keep the room slightly below the viewport center (≈10%). */
-const VIEW_BIAS_Y = -0.1
 /** Classic axonometric elevation: 35.264° above the horizon. */
 const ISO_PHI = THREE.MathUtils.degToRad(90 - 35.264)
 const ORTHO_RADIUS = 18
-/** Default zoom levels = the "100%" reference shown in the status bar. */
+/** Legacy zoom reference for consumers before a fitted camera is ready. */
 export const ORTHO_ZOOM = 55
 const PERSP_POS = new THREE.Vector3(9, 8, 9)
 /** Perspective default offset from the orbit target. */
@@ -74,6 +73,7 @@ export default function CameraRig() {
   const size = useThree((s) => s.size)
   const controlsRef = useRef<Controls>(null)
   const tween = useRef<Tween | null>(null)
+  const manuallyFramed = useRef(false)
   const scratch = useRef(new THREE.Spherical())
   const targetRef = useRef(new THREE.Vector3(anchor.cx, 0.8, anchor.cz))
   targetRef.current.set(cx, 0.8, cz)
@@ -89,6 +89,7 @@ export default function CameraRig() {
   if (prevProjection !== projection) {
     setPrevProjection(projection)
     tween.current = null
+    manuallyFramed.current = false
     const bb = homeAABB(useStore.getState().home)
     setAnchor({ cx: bb.cx, cz: bb.cz })
     lastCenter.current.set(bb.cx, 0.8, bb.cz)
@@ -123,6 +124,28 @@ export default function CameraRig() {
     return () => cam.clearViewOffset()
   }, [camera, size])
 
+  // Refit only an untouched view when the canvas settles/resizes. Room edits
+  // deliberately do not trigger this effect, preserving the user's orbit/pan.
+  useEffect(() => {
+    if (manuallyFramed.current || size.width <= 0 || size.height <= 0) return
+    const isOrtho = projection === 'isometric'
+    if (isOrtho !== Boolean((camera as THREE.OrthographicCamera).isOrthographicCamera)) return
+    const state = useStore.getState()
+    const bb = homeAABB(state.home)
+    const phi = isOrtho ? ISO_PHI : PERSP_PHI
+    const fit = fitHomeCamera(bb, state.wallHeight, size, ISO_THETAS['iso-se'], phi)
+    camera.userData.fitZoom = fit.zoom
+    camera.userData.fitDistance = fit.distance
+    const target = targetRef.current
+    camera.position.setFromSphericalCoords(isOrtho ? ORTHO_RADIUS : fit.distance, phi, ISO_THETAS['iso-se']).add(target)
+    camera.zoom = isOrtho ? fit.zoom : 1
+    camera.lookAt(target)
+    camera.updateProjectionMatrix()
+    controlsRef.current?.target.copy(target)
+    controlsRef.current?.update()
+    lastCenter.current.copy(target)
+  }, [camera, projection, size.width, size.height])
+
   // View preset requests from the UI bus.
   useEffect(() => {
     return subscribeView((v: ViewPreset) => {
@@ -132,13 +155,20 @@ export default function CameraRig() {
       const from: Pose = { theta: sph.theta, phi: sph.phi, radius: sph.radius, zoom: cam.zoom }
       let to: Pose
       if (v === 'reset') {
+        const state = useStore.getState()
+        const fit = fitHomeCamera(homeAABB(state.home), state.wallHeight, get().size, ISO_THETAS['iso-se'], state.projection === 'isometric' ? ISO_PHI : PERSP_PHI)
+        cam.userData.fitZoom = fit.zoom
+        cam.userData.fitDistance = fit.distance
+        manuallyFramed.current = false
         to =
-          useStore.getState().projection === 'isometric'
-            ? { theta: ISO_THETAS['iso-se'], phi: ISO_PHI, radius: ORTHO_RADIUS, zoom: ORTHO_ZOOM }
-            : { theta: ISO_THETAS['iso-se'], phi: PERSP_PHI, radius: PERSP_RADIUS, zoom: 1 }
+          state.projection === 'isometric'
+            ? { theta: ISO_THETAS['iso-se'], phi: ISO_PHI, radius: ORTHO_RADIUS, zoom: fit.zoom }
+            : { theta: ISO_THETAS['iso-se'], phi: PERSP_PHI, radius: fit.distance, zoom: 1 }
       } else if (v === 'top') {
+        manuallyFramed.current = true
         to = { ...from, phi: 0.01 }
       } else {
+        manuallyFramed.current = true
         to = { ...from, theta: ISO_THETAS[v], phi: ISO_PHI }
       }
       tween.current = { from, to, t: 0 }
@@ -206,7 +236,7 @@ export default function CameraRig() {
           position={[anchor.cx + ORTHO_RADIUS / Math.sqrt(3), 0.8 + ORTHO_RADIUS / Math.sqrt(3), anchor.cz + ORTHO_RADIUS / Math.sqrt(3)]}
           zoom={ORTHO_ZOOM}
           near={-100}
-          far={200}
+          far={2000}
         />
       ) : (
         <PerspectiveCamera
@@ -214,12 +244,13 @@ export default function CameraRig() {
           fov={40}
           position={[anchor.cx + PERSP_OFFSET.x, 0.8 + PERSP_OFFSET.y, anchor.cz + PERSP_OFFSET.z]}
           near={0.1}
-          far={200}
+          far={2000}
         />
       )}
       <OrbitControls
         ref={controlsRef}
         makeDefault
+        onStart={() => { manuallyFramed.current = true; tween.current = null }}
         enableDamping
         dampingFactor={0.08}
         screenSpacePanning={false}
@@ -237,10 +268,10 @@ export default function CameraRig() {
         // structure-edit handles/markers must not hide behind tall walls
         minPolarAngle={0.01}
         maxPolarAngle={1.45}
-        minZoom={25}
-        maxZoom={160}
+        minZoom={0.1}
+        maxZoom={1000}
         minDistance={3}
-        maxDistance={30}
+        maxDistance={1000}
         target={[anchor.cx, 0.8, anchor.cz]}
       />
     </>

@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -10,6 +10,7 @@ import { set } from 'idb-keyval'
 import { useStore } from '../../state/store'
 import type { FurnitureType, ModelDef } from '../../models/registry'
 import { MODEL_BLOB_KEY } from '../../three/runtime'
+import { REFPHOTO_KEY } from '../../lib/thumbnails'
 import { useUI } from '../uiStore'
 import { GhostButton, IconButton, PrimaryButton } from '../components'
 
@@ -128,6 +129,11 @@ function measure(group: THREE.Object3D): { size: THREE.Vector3; triangles: numbe
 
 const thousands = (n: number) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 
+interface RefPhoto {
+  file: File
+  url: string
+}
+
 export default function UploadModel() {
   const closeUpload = useUI((s) => s.closeUpload)
   const pushToast = useUI((s) => s.pushToast)
@@ -139,9 +145,18 @@ export default function UploadModel() {
   const [sizeLine, setSizeLine] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [photos, setPhotos] = useState<RefPhoto[]>([])
   const groupRef = useRef<THREE.Group | null>(null)
   const sizeRef = useRef<THREE.Vector3 | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const photoRef = useRef<HTMLInputElement>(null)
+  const photoUrls = useRef<string[]>([])
+
+  // Keep ownership separate from render state so unmount sees every preview.
+  useEffect(() => () => {
+    photoUrls.current.forEach((url) => URL.revokeObjectURL(url))
+    photoUrls.current = []
+  }, [])
 
   const pickFile = async (f: File) => {
     setError(null)
@@ -171,6 +186,12 @@ export default function UploadModel() {
     e.preventDefault()
     const f = e.dataTransfer.files?.[0]
     if (f) void pickFile(f)
+  }
+
+  const addPhotos = (files: File[]) => {
+    const added = files.map((file) => ({ file, url: URL.createObjectURL(file) }))
+    photoUrls.current.push(...added.map((photo) => photo.url))
+    setPhotos((prev) => [...prev, ...added])
   }
 
   const canAdd = !!file && !!groupRef.current && !!name.trim() && !busy
@@ -203,6 +224,9 @@ export default function UploadModel() {
         height: size.y,
       }
       addUpload(def)
+      for (let i = 0; i < photos.length; i++) {
+        await set(REFPHOTO_KEY(id, i), photos[i].file)
+      }
       pushToast(`已添加 Added: ${def.name}`)
       closeUpload(true)
     } catch {
@@ -276,6 +300,37 @@ export default function UploadModel() {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="form-row">
+            <span className="lbl">参考照片 Reference photos(可选)</span>
+            {photos.length > 0 && (
+              <div className="ref-previews">
+                {photos.map((p) => (
+                  <img key={p.url} src={p.url} alt="参考 reference" />
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ width: '100%' }}
+              onClick={() => photoRef.current?.click()}
+            >
+              + 添加参考照片 Add reference photos
+            </button>
+            <input
+              ref={photoRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? [])
+                if (files.length) addPhotos(files)
+                e.target.value = ''
+              }}
+            />
           </div>
 
           <div className="btn-row">

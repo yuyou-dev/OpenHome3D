@@ -42,6 +42,8 @@ The image on the right is an example repaint from the scene on the left. Generat
 - **An editable floor plan in 3D** — drag and resize rooms from the top view; add doors, windows, full-height openings, balcony parapets, and cutaway walls.
 - **A room that feels like yours** — browse 337 bundled CC0 models, tune 18 parametric pieces, upload your own model, then move, rotate, duplicate, resize, or swap furniture.
 - **A stylized presentation** — flat cel-shaded colors, ink outlines, soft shadows, isometric and perspective cameras, plus exportable project files.
+- **Edits that survive regeneration** — hand-added, edited, locked and legacy furniture stays through Shuffle; density only rebuilds unprotected automatic decorations. Room resizing clamps existing positions, and changed wall connections are repaired with a notice when an opening must be removed.
+- **Recovery and fast discovery** — 50-step session undo/redo, Chinese/English model search, and whole-home camera fitting on first load, reset and projection changes.
 - **An AI-assisted concept image** — import a plan or repaint the designed room locally through Codex.
 
 ## Use OpenHome3D
@@ -108,26 +110,26 @@ After installing or updating the Companion, fully restart Codex Desktop, create 
 
 ### Install manually
 
-Requires [Node.js 20 or newer](https://nodejs.org/).
+Requires [Node.js](https://nodejs.org/) `^20.19.0 || >=22.12.0`, matching the installed Vite version.
 
 ```bash
 git clone https://github.com/yuyou-dev/OpenHome3D.git
 cd OpenHome3D
-npm install
+npm ci
 npm run dev
 ```
 
-Open the local URL printed by the terminal. No configuration is required for the 3D designer.
+Open the local URL printed by the terminal. The random port (40000–65000) is cached in `.port`; strict port mode fails if it is occupied. Stop the old service or remove `.port` before restarting to select another port. Built-in models ship with the repository; ordinary startup does not download assets.
 
 To use the optional AI features, also install and sign in to Codex CLI, then run the project check:
 
 ```bash
-npm install -g @openai/codex
+npm i -g @openai/codex@latest
 codex login
 npm run doctor
 ```
 
-`npm run doctor` checks Node, Codex CLI, and `codex login status`; it never reads credential files. If Codex is unavailable, the browser designer still works.
+`npm run doctor` checks Node compatibility, the Codex CLI version, and `codex login status`; it never reads credential files. GPT-6 Astra requires CLI **0.153.1 or newer** ([official changelog](https://learn.chatgpt.com/docs/changelog)); upgrade older versions with `npm i -g @openai/codex@latest`. Status and request preflight reject incompatible versions before starting a task. If Codex is unavailable, the browser designer still works.
 
 ## A five-minute first project
 
@@ -135,9 +137,36 @@ npm run doctor
 2. Open **Room** to change the active room type, dimensions, or partition height.
 3. Press **Shuffle** until the seeded furnishing feels close, then drag and edit individual pieces.
 4. Use the top toolbar to switch view, projection, pan mode, cutaway walls, windows, floor slab, and furniture visibility.
-5. Save with **Export**. When local AI is available, open **AI Render** to make and compare a concept image.
+5. Use **Save** to download a portable `.home3d` project; **Open** restores it and **Layout** exports the compatible lightweight JSON. When local AI is available, open **AI Render** to make and compare a concept image.
 
 Helpful controls: arrow keys nudge the selected item; `A` / `E` rotate it; `Alt` temporarily disables grid snap; right-drag or `Shift` + left-drag pans the camera.
+
+## Editing recovery and project files
+
+
+Undo/redo uses Ctrl/⌘ Z, Ctrl/⌘ Shift Z or Ctrl Y. A drag, continuous arrow-key edit or slider gesture counts as one step; the 50-step history lasts for the current page session. Layout, furniture, shell and floor-plan image restore together. Undoing a complete project import also restores its previous projection and grid; ordinary view changes do not become edit history. Upload-file and reference-photo management are outside undo; deleting an uploaded model clears history.
+
+“New plan” asks before replacing the whole home. To add a room, use “Add room” in the Home tab. Template changes and imports replace the plan and can be undone.
+
+The sidebar footer offers three file actions:
+
+- **Save** writes a `.home3d` JSON package containing the current scene, preservation flags, shell/display/projection/grid settings, referenced upload GLBs, reference photos and original floor plan.
+- **Open** accepts `.home3d` or legacy layout JSON and asks before replacement. Package import validates resources and assigns new uploaded-model and furniture IDs, preserving existing assets so the import can be undone.
+- **Layout** exports the compatible lightweight JSON v1. Its confirmation lists omitted uploaded furniture and explains that images, wall height and display settings are omitted. Importing this format clears the unrelated floor-plan image.
+
+Project packages contain resources used by the current scene; they omit unused uploads, AI render history, undo history and the current camera pose. Resources are embedded in JSON without compression. AI results can be downloaded separately.
+
+The active scene is stored in localStorage; uploads, reference photos, AI history and the original floor plan use IndexedDB. Both are scoped to the browser origin (protocol, host and port). Changing the port or clearing website data can hide or remove previous work; save a project file before moving browsers or machines.
+
+## Local AI behavior
+
+The path is browser → Vite `/api/ai/*` → `codex exec`. The app does not read credentials or require an API key; `HOME3D_CODEX_BIN` can select the codex executable. Both floor-plan recognition and render orchestration explicitly select **GPT-6 Astra** (`--model gpt-6-astra`) with `high` reasoning effort, configured once in `scripts/ai-config.mjs` instead of inheriting the user's global default. See the [official model page](https://developers.openai.com/api/docs/models/gpt-6-astra). Rendering still calls codex's `image_gen` tool: GPT-6 Astra is the orchestration model, not a claim about the image tool's own model version.
+
+Recognition returns structured JSON; rendering calls `image_gen` once. They share one execution slot. Login and busy status refresh automatically. Closing the render panel keeps the task running in the same page, with status in the top bar; reopen it to view the result or cancel. Reloading or closing the page ends the running request.
+
+New render-history entries retain the actual input screenshot, prompt, reference-image snapshots and result from that task. Older image-only entries display only their result. If saving history fails, the current result remains available for immediate download. Ratios are requested as 1:1, 3:2 or 2:3; the image tool determines actual dimensions and can slightly change composition.
+
+Only `npm run dev` provides AI endpoints. The Pages demo, production build and `npm run preview` show local-only guidance instead. CLI tool availability and output formats can change; implementation contracts are in [AGENTS.md](AGENTS.md).
 
 ## Community & Pull Requests
 
@@ -183,17 +212,34 @@ Use [Discussions](https://github.com/yuyou-dev/OpenHome3D/discussions) for quest
 
 Most users only need `npm run dev`. Maintainers may also use:
 
-| Command | Purpose |
+| Command | What it does |
 | --- | --- |
-| `npm run build` | Strict type-check and production build |
-| `npm run smoke` | Layout, collision, opening, template, and import regression checks |
-| `npm run smoke:ui` | Browser screenshot and console-error smoke test |
-| `npm run audit:ui` | Desktop/mobile overflow audit |
-| `npm run doctor` | Local AI environment check |
-| `npm run companion:test` | Companion manifest, skills, MCP, and Apps UI checks |
-| `npm run scan:public` | Scan tracked files for accidental private data |
+| `npm run dev` | Vite dev server on a cached random high port |
+| `npm run build` | Strict app and Vite-config type checks + production build |
+| `npm run smoke:pages` | Build and test the Pages subpath, assets and local-only AI guidance without mocks or publishing |
+| `npm run build:pages` | Type checks + production build using `/OpenHome3D/` as the base URL |
+| `npm run preview` | Serve `dist/`, without local AI endpoints |
+| `npm run check` | Build, layout, editor/search/camera and mocked AI middleware regressions |
+| `npm run smoke` | Layout determinism, bounds, collisions, door avoidance, templates, plan conversion and walls |
+| `npm run smoke:editor` | Edit history, preservation, openings, plan-image recovery, search, camera and screenshot regressions |
+| `npm run smoke:ai:live -- --run` | Explicit live check: one recognition and one generated image; requires a dev server and consumes account credits |
+| `npm run smoke:ai` | Middleware tests with a simulated codex executable; no real AI calls |
+| `npm run smoke:ui` | Headless Chrome screenshot, selected actions and console/HTTP error checks |
+| `npm run smoke:interactions` | Browser editing and interaction regressions |
+| `npm run smoke:project` | Package save/open, isolated-browser resource recovery, undo/redo and legacy compatibility |
+| `npm run smoke:ai-flow` | Mocked AI status, background tasks, cancellation, failures and history |
+| `npm run check:ui` | All browser regressions and overflow audit in sequence; requires a running dev server |
+| `npm run audit:ui` | Multi-state, two-viewport overflow audit; findings fail the command |
+| `npm run assets` | Fetch missing Kenney/KayKit sources and regenerate the manifest; completed sources are skipped |
+| `npm run doctor` | AI environment preflight (Node, codex CLI, login); `--json` for machines |
+| `npm run companion:test` | Validate Companion MCP, Apps UI and plugin manifest |
+| `npm run scan:public` | Scan tracked and non-ignored untracked files for private data; also runs in CI |
 
-Implementation contracts live in [AGENTS.md](AGENTS.md). The app uses React, TypeScript, three.js / React Three Fiber, Zustand, and Vite; those details are intentionally kept out of the getting-started path.
+Browser regressions need a running dev server and Chrome (`CHROME_PATH` overrides the executable). They read `.port` by default; use `APP_URL` for another instance. `smoke:ui` accepts `SHOT`, `WIDTH/HEIGHT` and `ACTIONS`; `audit:ui` accepts `SHOT_DIR`. Check the scripts for supported actions and actual test counts. All browser regressions mock AI routes, including status, and need no login or credits. The explicit `npm run smoke:ai:live -- --run` performs one real recognition and one real image generation through temporary middleware, using the dev server only for an isolated default-scene screenshot; it is deliberately excluded from `check` and `check:ui`. Run it only when live validation is intended.
+
+Implementation contracts live in [AGENTS.md](AGENTS.md), and the maintenance/verification record is in [HANDOFF.md](HANDOFF.md). The app uses React, TypeScript, three.js / React Three Fiber, Zustand, and Vite. Both AI routes share `scripts/ai-config.mjs`; `scripts/ai-api.mjs` also supports the paginated image-result format introduced in newer Codex releases, while accepting older rollout formats. Image extraction and cleanup remain restricted to the current task's rollout.
+
+OpenHome3D shares core editing and cartoon rendering with Home3D-Cartoon, while independently maintaining Pages deployment, installation lifecycle and the Companion. Shared changes are ported selectively and verified in each repository. Pages static assets must retain the `import.meta.env.BASE_URL` prefix.
 
 ## Assets, brand & license
 
@@ -276,32 +322,46 @@ AI 只在本机开发服务器中运行。OpenHome3D 不读取 Codex 登录文�
 
 ### 手动安装
 
-需要 Node.js 20 或更高版本：
+需要 Node.js `^20.19.0 || >=22.12.0`：
 
 ```bash
 git clone https://github.com/yuyou-dev/OpenHome3D.git
 cd OpenHome3D
-npm install
+npm ci
 npm run dev
 ```
 
 终端会打印一个本地地址，打开它即可使用完整 3D 设计器。要启用可选 AI 功能，再执行：
 
 ```bash
-npm install -g @openai/codex
+npm i -g @openai/codex@latest
 codex login
 npm run doctor
 ```
 
-如果 Codex CLI 暂时不可用，只会影响 AI 户型识别和 AI 重绘，不影响普通 3D 编辑。
+两个 AI 流程统一使用 **GPT-6 Astra**（`gpt-6-astra`）和 `high` 推理档位，配置集中在 `scripts/ai-config.mjs`。GPT-6 Astra 负责识别与编排，效果图仍由其调用 `image_gen` 工具生成；不把编排模型与图像工具的模型版本混称。
+
+最低需要 Codex CLI **0.153.1**。旧版使用 `npm i -g @openai/codex@latest` 升级，再运行 `codex --version` 和 `npm run doctor`；版本不兼容时状态检查和任务预检会提示升级。新版分页 rollout 的图片结果格式已兼容，且只读取/清理本次任务产物。Codex 暂不可用时只影响 AI 功能，不影响普通 3D 编辑。
 
 ### 第一次使用
 
 1. 在「整宅 Home」里选择单间、一居或两居模板；本机 AI 可用时也可以直接导入户型图。
 2. 在「房间 Room」里调整当前房间类型、面宽、进深和隔墙高度。
-3. 点击「换一换 Shuffle」重新布置整间房，再选中单件家具进行移动、旋转、缩放、复制或换模。
+3. 点击「换一换 Shuffle」重排未保留的自动家具，再选中单件家具进行移动、旋转、缩放、复制或换模；手工修改后的家具默认保留。
 4. 在顶栏切换视角、轴测/透视、平移模式，以及墙体剖切、门窗、楼板和家具显示。
-5. 用「导出 Export」保存项目；需要概念效果图时，打开「AI 渲染」生成并对比结果。
+5. 用「保存工程 Save」下载完整 `.home3d`，用「打开 Open」恢复，或用「仅布局 Layout」导出兼容旧格式的 JSON；需要概念效果图时，打开「AI 渲染」生成并对比结果。
+
+### 编辑、保存与 AI 任务
+
+
+- 手动添加、修改、锁定和旧版家具默认在「换一换」时保留；密度只更新未保护的自动装饰。房间尺寸调整只夹取现有家具位置，改房型保留家具及门窗；房间变化后自动规范门窗，断开的开口移除并提示。
+- 顶栏提供最多 50 步会话撤销/重做（Ctrl/⌘ Z、Ctrl/⌘ Shift Z 或 Ctrl Y），连续操作合并为一步；布局与户型原图一起恢复。完整工程导入的撤销还恢复投影和网格。上传文件/参考照片管理不入历史，删除上传模型清空历史。
+- 「新建方案」确认后覆盖整宅；增量添加使用「整宅 Home」里的「添加房间」。家具库支持中英文别名和多词交集搜索；首次打开、重置和投影切换适配整宅取景。
+- 「保存工程」下载 `.home3d`，包含当前场景引用的上传模型、参考照片、户型原图和设置，可跨浏览器恢复；「打开」兼容工程包和旧 JSON，确认后替换且可撤销。「仅布局」保留轻量 JSON v1，并明确省略范围。
+- 工程包不包含未用上传库、AI 历史、撤销栈或相机姿态；本地存储绑定浏览器源（含端口）。换浏览器、换电脑或清数据前先保存工程。
+- 关闭 AI 面板会继续当前页面中的渲染，顶栏显示任务状态；重新打开可查看或取消，刷新/关闭页面会中止请求。新历史保存当次输入、提示词、参考图及结果，旧记录仅显示结果，历史写入失败仍可下载图片。
+
+完整维护命令见上方 [Maintainer commands](#maintainer-commands)。日常使用 `npm run check`，启动 dev server 后运行 `npm run check:ui`；常规 AI 回归为模拟，不消耗额度。显式真实验证使用 `npm run smoke:ai:live -- --run`，执行一次识别和一次出图并消耗额度，不属于两个总门禁。`npm run smoke:pages` 独立检查静态子路径、资源和 AI 降级提示，不发布网站。
 
 ### 不会 Git，也可以参与和提交 PR
 
@@ -322,3 +382,9 @@ OpenHome3D Companion 是本项目配套的 Codex 插件。它可以打开可视�
 传统 GitHub 流程也完全支持：Fork 仓库 → 新建分支 → 完成一个聚焦的改动 → 运行 `npm run build` 和相关测试 → 提交 Pull Request。问题、想法和作品展示请优先发到 [Discussions](https://github.com/yuyou-dev/OpenHome3D/discussions)，可复现 Bug 请发到 [Issues](https://github.com/yuyou-dev/OpenHome3D/issues)。详细规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 本项目以 [MIT 协议](LICENSE)开源；Kenney / KayKit 家具资产为 CC0。
+
+## Known limits · 已知限制
+
+Rooms must be non-overlapping rectangles; combine rectangles for an L-shaped space. Furniture cannot be dragged between rooms. If a room is smaller than a piece, the piece is centered without silently rescaling it. Only some generation rules avoid door zones; rerun Shuffle after opening edits. Interior walls do not participate in cutaway. AI recognition may miss objects or estimate dimensions incorrectly; calibrate the result in the editor. Image generation may slightly alter composition.
+
+房间须为不重叠矩形，L 形可用多个矩形拼接；家具不跨房间拖动，房间小于家具时只归中、不自动缩模。部分布局规则尚未避门，门窗编辑后需再次「换一换」才应用避让；内墙不参与剖切。识别结果需校准尺寸和漏报，效果图也可能略改构图。

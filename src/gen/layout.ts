@@ -11,6 +11,10 @@ export interface LayoutOpts {
   /** 0–100, gates DECOR pieces */
   extras: number
   models: ModelDef[]
+  /** Existing user work used as placement obstacles; output contains new pieces only. */
+  preserved?: FurnitureInstance[]
+  /** Density edits generate only decorative rules. */
+  decorOnly?: boolean
   /**
    * Doorway intervals the layout must keep clear, in wall-local coordinates
    * (meters from the wall start: west end for n/s walls, north end for e/w
@@ -334,6 +338,7 @@ interface Ctx {
   placed: Placed[]
   sideOf: Map<string, Side>
   seq: number
+  decorative: boolean
 }
 
 const ATTEMPTS = 24
@@ -416,6 +421,8 @@ function makeInstance(ctx: Ctx, def: ModelDef, rule: BaseRule): FurnitureInstanc
     rotationY: 0,
     params: { ...defaultParams(def), ...(rule.params ?? {}) },
     scale: 1,
+    source: 'generated',
+    decor: rule.gate !== undefined || ctx.decorative,
   }
 }
 
@@ -793,10 +800,24 @@ export function generateLayoutDetailed(opts: LayoutOpts): PlacedInstance[] {
     placed: [],
     sideOf: new Map(),
     seq: 0,
+    decorative: false,
   }
+  for (const inst of opts.preserved ?? []) {
+    const def = ctx.models.get(inst.modelId)
+    if (!def) continue
+    const [w, d] = footprintOf(def, inst.params, inst.scale)
+    ctx.placed.push({ inst, box: boxAt(...inst.position, w, d, inst.rotationY), ghost: inst.modelId === 'builtin:rug' })
+    ctx.seq = Math.max(ctx.seq, Number(inst.id.match(/(?:^|:)f(\d+)$/)?.[1] ?? 0))
+  }
+  const preservedCount = ctx.placed.length
   const extrasGate = Math.max(0, Math.min(100, opts.extras)) / 100
 
   for (const rule of program.rules) {
+    const hostId = rule.kind === 'ring' ? rule.around : rule.kind === 'front' || rule.kind === 'on' ? rule.of : undefined
+    ctx.decorative = rule.gate !== undefined || !!(hostId && findPlaced(ctx, hostId)?.inst.decor)
+    if (opts.decorOnly && !ctx.decorative) continue
+    const modelIds = Array.isArray(rule.model) ? rule.model : [rule.model]
+    if (opts.preserved?.some((f) => (f.source !== 'generated' || f.locked) && modelIds.includes(f.modelId))) continue
     if (rule.gate !== undefined && !chance(rng, extrasGate * rule.gate)) continue
     switch (rule.kind) {
       case 'wall':
@@ -842,11 +863,11 @@ export function generateLayoutDetailed(opts: LayoutOpts): PlacedInstance[] {
     const count = Math.round(extrasGate * program.maxDecor)
     for (let i = 0; i < count && pool.length > 0; i++) {
       const def = pick(rng, pool)
-      placeFree(ctx, { kind: 'free', model: def.id })
+      placeFree(ctx, { kind: 'free', model: def.id, gate: 1 })
     }
   }
 
-  return ctx.placed.map((p) => ({ inst: p.inst, side: p.side }))
+  return ctx.placed.slice(preservedCount).map((p) => ({ inst: p.inst, side: p.side }))
 }
 
 /**

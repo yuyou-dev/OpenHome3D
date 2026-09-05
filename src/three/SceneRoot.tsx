@@ -19,7 +19,7 @@ const VIEW_TARGET = new THREE.Vector3(0, 0.8, 0)
 /** Emits the camera zoom as a percentage over the runtime bus ~2×/s. */
 function ZoomProbe() {
   const acc = useRef(0)
-  useFrame(({ camera }, delta) => {
+  useFrame(({ camera, controls }, delta) => {
     acc.current += delta
     if (acc.current < 0.5) return
     acc.current = 0
@@ -27,8 +27,8 @@ function ZoomProbe() {
     VIEW_TARGET.set(bb.cx, 0.8, bb.cz)
     const isOrtho = (camera as THREE.OrthographicCamera).isOrthographicCamera === true
     const pct = isOrtho
-      ? (camera.zoom / ORTHO_ZOOM) * 100
-      : (PERSP_RADIUS / Math.max(0.001, camera.position.distanceTo(VIEW_TARGET))) * 100
+      ? (camera.zoom / (camera.userData.fitZoom ?? ORTHO_ZOOM)) * 100
+      : ((camera.userData.fitDistance ?? PERSP_RADIUS) / Math.max(0.001, camera.position.distanceTo((controls as { target?: THREE.Vector3 } | null)?.target ?? VIEW_TARGET))) * 100
     emitZoomPct(Math.round(pct))
   })
   return null

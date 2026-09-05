@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { requestView, type ViewPreset } from '../three/runtime'
+import { useAiTask } from '../state/aiTask'
 import { useStore } from '../state/store'
 import { useUI } from './uiStore'
 import { Checkbox, IconButton } from './components'
+import EditHistory from './EditHistory'
 
 const S = {
   fill: 'none',
@@ -139,6 +141,7 @@ const VIEWS: { preset: ViewPreset; title: string; icon: ReactNode }[] = [
 ]
 
 export default function TopBar() {
+  const aiPhase = useAiTask((s) => s.phase)
   const openModal = useUI((s) => s.openModal)
   const projection = useStore((s) => s.projection)
   const setProjection = useStore((s) => s.setProjection)
@@ -147,8 +150,10 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="tb-right">
-        {/* one merged camera bar: view presets · pan mode · projection */}
+        {/* one merged camera bar: view presets · pan mode · projection · AI render */}
         <div className="cam-bar">
+          <EditHistory />
+          <span className="cam-sep" />
           {VIEWS.map((v) => (
             <IconButton key={v.preset} title={v.title} onClick={() => requestView(v.preset)}>
               {v.icon}
@@ -177,7 +182,7 @@ export default function TopBar() {
             className="btn btn-ghost cam-btn ai-btn"
             onClick={() => openModal({ kind: 'ai' })}
           >
-            <ImageIcon /> AI 渲染
+            <ImageIcon /> {aiPhase === 'preparing' || aiPhase === 'running' || aiPhase === 'saving' ? '渲染中 Rendering…' : aiPhase === 'done' ? 'AI 已完成 Done' : aiPhase === 'error' ? 'AI 出错 Error' : 'AI 渲染'}
           </button>
         </div>
       </div>

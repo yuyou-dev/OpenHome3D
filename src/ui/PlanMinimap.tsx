@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
-import { loadPlanImage } from '../lib/planImage'
 
 /**
  * Corner minimap of the imported floor-plan image, map-style: visible only in
@@ -11,25 +10,8 @@ export default function PlanMinimap() {
   const planTab = useStore((s) => s.planTab)
   const planImageKey = useStore((s) => s.planImageKey)
   const clearPlanImage = useStore((s) => s.clearPlanImage)
-  const [src, setSrc] = useState<string | null>(null)
+  const src = useStore((s) => s.planImageUrl)
   const [zoom, setZoom] = useState(false)
-
-  // bytes live in IndexedDB; the persisted key is just the "has image" flag
-  useEffect(() => {
-    let alive = true
-    if (planImageKey) {
-      loadPlanImage()
-        .then((v) => {
-          if (alive) setSrc(typeof v === 'string' ? v : null)
-        })
-        .catch(() => {})
-    } else {
-      setSrc(null)
-    }
-    return () => {
-      alive = false
-    }
-  }, [planImageKey])
 
   // Esc closes the lightbox (click anywhere on it does too)
   useEffect(() => {

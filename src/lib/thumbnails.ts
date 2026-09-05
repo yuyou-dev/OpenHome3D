@@ -5,6 +5,9 @@ import { MODEL_BLOB_KEY } from '../three/runtime'
 import { applyToon } from './toon'
 import type { ModelDef } from '../models/registry'
 
+/** idb-keyval key for a reference photo attached to a furniture instance (or upload model). */
+export const REFPHOTO_KEY = (instanceId: string, n: number): string => `refphoto:${instanceId}:${n}`
+
 /* ---------------------------------------------------------------------------
    Offscreen thumbnail renderer (vanilla three, no R3F).
    Toon colors + EdgesGeometry look matching the 3D view, lazy singleton

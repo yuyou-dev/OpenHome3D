@@ -10,8 +10,8 @@ import {
   materializeShell,
   roomById,
   roomsOverlap,
-  sideSpan,
-  validateOpening,
+  fitOpening,
+  reconcileOpenings,
   type HomeDef,
   type Opening,
   type RoomDef,
@@ -26,7 +26,8 @@ import {
   type FurnitureInstance,
   type ModelDef,
 } from '../models/registry'
-import { deletePlanImage, PLAN_IMAGE_KEY, savePlanImage } from '../lib/planImage'
+import { deletePlanImage, loadPlanImage, PLAN_IMAGE_KEY, savePlanImage } from '../lib/planImage'
+import { createHistory } from './history'
 
 export type PlanTab = 'home' | 'room'
 export type Projection = 'isometric' | 'perspective'
@@ -48,6 +49,17 @@ export interface StructureSettings {
  * `planTab`/`activeRoomId`/`selectedOpeningId`/`lastSwapId` are session-only
  * (activeRoomId falls back to rooms[0] on rehydrate).
  */
+export interface CompleteProjectState extends StructureSettings {
+  home: HomeDef
+  seed: string
+  extras: number
+  furniture: FurnitureInstance[]
+  uploads: ModelDef[]
+  planImageUrl: string | null
+  moveGrid: number
+  projection: Projection
+}
+
 export interface HGState extends StructureSettings {
   planTab: PlanTab
   home: HomeDef
@@ -63,11 +75,24 @@ export interface HGState extends StructureSettings {
   selectedOpeningId: string | null
   uploads: ModelDef[]
   lastSwapId: string | null
+  structureNotice: string | null
+  dismissStructureNotice: () => void
+  restoreCompleteProject: (project: CompleteProjectState) => void
   /**
    * idb-keyval key of the latest imported floor-plan image (bytes live in
    * IndexedDB, see src/lib/planImage.ts); null = no image. Persisted.
    */
   planImageKey: string | null
+  /** Reactive image bytes for this session; never written to localStorage. */
+  planImageUrl: string | null
+  canUndo: boolean
+  canRedo: boolean
+  undo: () => void
+  redo: () => void
+  beginEdit: () => void
+  endEdit: () => void
+  /** Rehydrate image bytes and any snapshots captured while IndexedDB was loading. */
+  restorePlanImage: () => Promise<void>
 
   setPlanTab: (tab: PlanTab) => void
   setRoomType: (type: string) => void
@@ -77,7 +102,7 @@ export interface HGState extends StructureSettings {
   randomizeSeed: () => void
   newRoom: () => void
   newHome: (templateId: string) => void
-  importHome: (home: HomeDef) => void
+  importHome: (home: HomeDef, imageUrl?: string) => void
   /** Save the imported plan image (dataURL) to IndexedDB and mark it present. */
   setPlanImage: (dataUrl: string) => void
   /** Drop the imported plan image (IndexedDB + flag). */
@@ -102,6 +127,7 @@ export interface HGState extends StructureSettings {
   moveFurniture: (id: string, x: number, z: number) => void
   rotateFurniture: (id: string, rotationY: number) => void
   nudgeFurniture: (id: string, dx: number, dz: number) => void
+  setFurnitureLocked: (id: string, locked: boolean) => void
   setScale: (id: string, scale: number) => void
   setParam: (id: string, key: string, value: number | boolean) => void
   resetShape: (id: string) => void
@@ -121,6 +147,8 @@ export interface HGState extends StructureSettings {
 function layoutForRoom(
   s: { seed: string; extras: number; home: HomeDef },
   room: RoomDef,
+  preserved: FurnitureInstance[] = [],
+  decorOnly = false,
 ): FurnitureInstance[] {
   return generateLayout({
     roomType: room.type,
@@ -130,15 +158,23 @@ function layoutForRoom(
     depth: room.rect.d,
     extras: s.extras,
     models: allModels(),
+    preserved,
+    decorOnly,
     doors: doorZonesFor(room, s.home),
   }).map((inst) => ({ ...inst, id: `${room.id}:${inst.id}`, roomId: room.id }))
 }
 
-/** All furniture except `room`'s, plus a freshly generated layout for it. */
+/** User/legacy work survives regeneration. Only untouched automatic pieces are replaceable. */
+function isPreserved(f: FurnitureInstance): boolean {
+  return f.source !== 'generated' || !!f.locked
+}
+
 function regenRoom(s: HGState, room: RoomDef, home: HomeDef = s.home): FurnitureInstance[] {
+  const preserved = s.furniture.filter((f) => f.roomId === room.id && isPreserved(f))
   return [
     ...s.furniture.filter((f) => f.roomId !== room.id),
-    ...layoutForRoom({ seed: s.seed, extras: s.extras, home }, room),
+    ...preserved,
+    ...layoutForRoom({ seed: s.seed, extras: s.extras, home }, room, preserved),
   ]
 }
 
@@ -183,19 +219,18 @@ function reclampInstance(inst: FurnitureInstance, home: HomeDef): FurnitureInsta
   }
 }
 
-const MIN_OPENING_W = 0.3
-
 /** Lightweight project-file schema version (see exportProject/importProject). */
 const PROJECT_FILE_VERSION = 1
 
-/** Clamp an opening's width/offset into its wall span. */
-function clampOpeningToWall(home: HomeDef, o: Opening): Opening {
-  const room = roomById(home, o.a)
-  if (!room) return o
-  const span = sideSpan(room, o.side).length
-  const width = clamp(o.width, MIN_OPENING_W, Math.max(MIN_OPENING_W, span))
-  const offset = clamp(o.offset, width / 2, span - width / 2)
-  return { ...o, width, offset }
+function structurePatch(home: HomeDef, selectedOpeningId: string | null): Partial<HGState> {
+  const result = reconcileOpenings(home)
+  return {
+    home: result.home,
+    selectedOpeningId: result.home.openings.some((o) => o.id === selectedOpeningId) ? selectedOpeningId : null,
+    structureNotice: result.removed || result.adjusted
+      ? `门窗已随墙体更新：移除 ${result.removed}，调整 ${result.adjusted}。Openings updated: ${result.removed} removed, ${result.adjusted} adjusted.`
+      : null,
+  }
 }
 
 function initialLayoutState() {
@@ -239,579 +274,702 @@ type Persisted = {
   planImageKey: string | null
 }
 
+const EDIT_KEYS = [
+  'home', 'seed', 'furniture', 'extras', 'wallHeight', 'cutawayWalls',
+  'floorSlab', 'windows', 'doorLeaves', 'showFurniture', 'planImageUrl', 'planImageKey',
+] as const
+const SNAPSHOT_KEYS = [...EDIT_KEYS, 'activeRoomId', 'selectedId', 'selectedOpeningId'] as const
+type SceneSnapshot = Pick<HGState, typeof SNAPSHOT_KEYS[number]>
+type EditSnapshot = SceneSnapshot & {
+  /** Only project replacement restores these; ordinary editing leaves the user's view alone. */
+  importSettings?: Pick<HGState, 'projection' | 'moveGrid'>
+}
+function snapshot(state: HGState, includeView = false): EditSnapshot {
+  const scene = Object.fromEntries(SNAPSHOT_KEYS.map((key) => [key, state[key]])) as SceneSnapshot
+  return includeView ? { ...scene, importSettings: { projection: state.projection, moveGrid: state.moveGrid } } : scene
+}
+
+function persistPlanImage(before: HGState, after: HGState) {
+  if (before.planImageUrl === after.planImageUrl && before.planImageKey === after.planImageKey) return
+  // A present key with no URL means hydration is still pending, not deletion.
+  if (after.planImageKey && !after.planImageUrl) return
+  const saving = after.planImageUrl ? savePlanImage(after.planImageUrl) : deletePlanImage()
+  saving.catch(() => {})
+}
+
 export const useStore = create<HGState>()(
   persist(
-    (set, get) => ({
-      planTab: 'room',
-      home: init.home,
-      seed: init.seed,
-      activeRoomId: init.home.rooms[0].id,
-      wallHeight: init.wallHeight,
-      cutawayWalls: true,
-      floorSlab: true,
-      windows: true,
-      doorLeaves: true,
-      showFurniture: true,
-      extras: 85,
-      moveGrid: 0.05,
-      projection: 'isometric',
-      furniture: init.furniture,
-      selectedId: null,
-      selectedOpeningId: null,
-      uploads: [],
-      lastSwapId: null,
-      planImageKey: null,
-
-      setPlanTab: (tab) => set({ planTab: tab }),
-
-      setRoomType: (type) => {
-        const s = get()
-        const room = roomById(s.home, s.activeRoomId)
-        if (!room || room.type === type) return
-        const spec = getRoomType(type)
-        const next: RoomDef = { ...room, type, name: spec.label, salt: 0 }
-        const rooms = s.home.rooms.map((r) => (r.id === room.id ? next : r))
-        // re-materialize this room's shell openings to match the new type's spec
-        const openings = [
-          ...s.home.openings.filter((o) => o.a !== room.id),
-          ...materializeShell(next, spec),
-        ]
-        set({ home: { rooms, openings }, furniture: regenRoom(s, next, { rooms, openings }), selectedId: null })
-      },
-
-      setRoomRect: (roomId, rect) => {
-        const s = get()
-        const room = roomById(s.home, roomId)
-        if (!room) return
-        const nextRect = {
-          x: round5cm(rect.x),
-          z: round5cm(rect.z),
-          w: clampDim(rect.w),
-          d: clampDim(rect.d),
+    (rawSet, get) => {
+      const history = createHistory<EditSnapshot>()
+      const set = (patch: Partial<HGState>, includeView = false) => {
+        const before = get()
+        const after = { ...before, ...patch }
+        if (EDIT_KEYS.some((key) => before[key] !== after[key]) ||
+          (includeView && (before.projection !== after.projection || before.moveGrid !== after.moveGrid))) {
+          history.record(snapshot(before, includeView))
         }
-        const candidate: RoomDef = { ...room, rect: nextRect }
-        // never overlap another room (a shared edge is fine)
-        if (s.home.rooms.some((r) => r.id !== roomId && roomsOverlap(candidate, r))) return
-        const rooms = s.home.rooms.map((r) => (r.id === roomId ? candidate : r))
-        // w/d change → regenerate that room; x/z move keeps room-local furniture as-is
-        const dimsChanged = nextRect.w !== room.rect.w || nextRect.d !== room.rect.d
-        // resized walls can strand openings: re-clamp this room's into their spans
-        const nextHome: HomeDef = { ...s.home, rooms }
-        const openings = dimsChanged
-          ? s.home.openings.map((o) => (o.a === roomId ? clampOpeningToWall(nextHome, o) : o))
-          : s.home.openings
-        const home: HomeDef = { ...nextHome, openings }
-        set({
-          home,
-          ...(dimsChanged ? { furniture: regenRoom(s, candidate, home) } : {}),
-        })
-      },
-
-      setRoomPartition: (height) => {
-        const s = get()
-        const room = roomById(s.home, s.activeRoomId)
-        if (!room) return
-        const h = Math.max(0, round5cm(height))
-        const rooms = s.home.rooms.map((r) =>
-          r.id === room.id ? { ...r, partitionHeight: h } : r,
-        )
-        set({ home: { ...s.home, rooms } })
-      },
-
-      setSeed: (seed) => {
-        const clean = seed.trim().toUpperCase()
-        if (!clean) return
-        const s = get()
-        const rooms = s.home.rooms.map((r) => ({ ...r, salt: 0 }))
-        set({
-          seed: clean,
-          home: { ...s.home, rooms },
-          furniture: regenAll({ seed: clean, extras: s.extras, home: { ...s.home, rooms } }, rooms),
-        })
-      },
-
-      randomizeSeed: () => {
-        get().setSeed(randomSeed())
-      },
-
-      newRoom: () => {
-        const s = get()
-        const seed = randomSeed()
-        const rng = rngFrom(`${seed}:room:living`)
-        const d = typeDefaults('living', rng)
-        const room: RoomDef = {
-          id: uid(),
-          type: 'living',
-          name: getRoomType('living').label,
-          rect: { x: 0, z: 0, w: d.width, d: d.depth },
-          salt: 0,
-          partitionHeight: d.partitionHeight,
-        }
-        const home: HomeDef = {
-          rooms: [room],
-          openings: materializeShell(room, getRoomType('living')),
-        }
-        set({
-          seed,
-          home,
-          activeRoomId: room.id,
-          wallHeight: d.wallHeight,
-          furniture: layoutForRoom({ seed, extras: s.extras, home }, room),
-          selectedId: null,
-          selectedOpeningId: null,
-        })
-      },
-
-      newHome: (templateId) => {
-        const s = get()
-        const seed = randomSeed()
-        const home = buildHome(templateId, seed)
-        // a template no longer matches any imported plan image
-        if (s.planImageKey) deletePlanImage()
-        set({
-          seed,
-          home,
-          activeRoomId: home.rooms[0].id,
-          furniture: regenAll({ seed, extras: s.extras, home }, home.rooms),
-          selectedId: null,
-          selectedOpeningId: null,
-          planImageKey: null,
-        })
-      },
-
-      /** Adopt an imported home (floor-plan recognition): keep the current seed, lay out every room. */
-      importHome: (home) => {
-        const s = get()
-        set({
-          home,
-          activeRoomId: home.rooms[0].id,
-          furniture: regenAll({ seed: s.seed, extras: s.extras, home }, home.rooms),
-          selectedId: null,
-          selectedOpeningId: null,
-        })
-      },
-
-      setPlanImage: (dataUrl) => {
-        savePlanImage(dataUrl).catch(() => {})
-        set({ planImageKey: PLAN_IMAGE_KEY })
-      },
-
-      clearPlanImage: () => {
-        deletePlanImage().catch(() => {})
-        set({ planImageKey: null })
-      },
-
-      rebuild: () => {
-        const s = get()
-        const room = roomById(s.home, s.activeRoomId)
-        if (!room) return
-        set({ furniture: regenRoom(s, room), selectedId: null })
-      },
-
-      reshuffleFurniture: () => {
-        const s = get()
-        const room = roomById(s.home, s.activeRoomId)
-        if (!room) return
-        const next: RoomDef = { ...room, salt: room.salt + 1 }
-        const rooms = s.home.rooms.map((r) => (r.id === room.id ? next : r))
-        set({
-          home: { ...s.home, rooms },
-          furniture: regenRoom(s, next, { ...s.home, rooms }),
-          selectedId: null,
-        })
-      },
-
-      addRoom: (type) => {
-        const s = get()
-        const active = roomById(s.home, s.activeRoomId) ?? s.home.rooms[0]
-        if (!active) return
-        const t = type ?? 'living'
-        const spec = getRoomType(t)
-        const d = typeDefaults(t, rngFrom(`${s.seed}:room:${t}`))
-        const room: RoomDef = {
-          id: uid(),
-          type: t,
-          name: spec.label,
-          rect: {
-            // east of the active room, gap 0, same depth (shared n/s edges)
-            x: active.rect.x + active.rect.w / 2 + d.width / 2,
-            z: active.rect.z,
-            w: d.width,
-            d: active.rect.d,
-          },
-          salt: 0,
-          partitionHeight: d.partitionHeight,
-        }
-        // slot taken → stagger +z until free (bounded search, last try stands)
-        for (let i = 0; i < 10 && s.home.rooms.some((r) => roomsOverlap(room, r)); i++) {
-          room.rect.z += 0.5
-        }
-        const home: HomeDef = { rooms: [...s.home.rooms, room], openings: s.home.openings }
-        // shell openings that violate placement rules (e.g. a window landing on
-        // a now-shared interior wall) are dropped, same contract as addOpening
-        const shell = materializeShell(room, spec).filter((o) => validateOpening(home, o))
-        const nextHome: HomeDef = { ...home, openings: [...home.openings, ...shell] }
-        set({
-          home: nextHome,
-          activeRoomId: room.id,
-          furniture: [
-            ...s.furniture,
-            ...layoutForRoom({ seed: s.seed, extras: s.extras, home: nextHome }, room),
-          ],
-        })
-      },
-
-      removeRoom: (roomId) => {
-        const s = get()
-        if (s.home.rooms.length <= 1) return // keep at least one room
-        if (!roomById(s.home, roomId)) return
-        const rooms = s.home.rooms.filter((r) => r.id !== roomId)
-        const openings = s.home.openings.filter((o) => o.a !== roomId && o.b !== roomId)
-        set({
-          home: { rooms, openings },
-          furniture: s.furniture.filter((f) => f.roomId !== roomId),
-          activeRoomId: s.activeRoomId === roomId ? rooms[0].id : s.activeRoomId,
-          selectedId: s.furniture.some((f) => f.id === s.selectedId && f.roomId === roomId)
-            ? null
-            : s.selectedId,
-          selectedOpeningId: openings.some((o) => o.id === s.selectedOpeningId)
-            ? s.selectedOpeningId
-            : null,
-        })
-      },
-
-      selectRoom: (roomId) => {
-        if (roomById(get().home, roomId))
-          set({ activeRoomId: roomId, selectedOpeningId: null, selectedId: null })
-      },
-
-      selectOpening: (id) => set({ selectedOpeningId: id }),
-
-      addOpening: (o) => {
-        const s = get()
-        if (!roomById(s.home, o.a)) return
-        const next = clampOpeningToWall(s.home, { ...o, id: uid() })
-        if (!validateOpening(s.home, next)) return
-        set({ home: { ...s.home, openings: [...s.home.openings, next] } })
-      },
-      removeOpening: (id) => {
-        const s = get()
-        set({
-          home: { ...s.home, openings: s.home.openings.filter((o) => o.id !== id) },
-          selectedOpeningId: s.selectedOpeningId === id ? null : s.selectedOpeningId,
-        })
-      },
-
-      updateOpening: (id, partial) => {
-        const s = get()
-        const cur = s.home.openings.find((o) => o.id === id)
-        if (!cur) return
-        const next = clampOpeningToWall(s.home, { ...cur, ...partial, id: cur.id })
-        if (!validateOpening(s.home, next)) return
-        set({
-          home: { ...s.home, openings: s.home.openings.map((o) => (o.id === id ? next : o)) },
-        })
-      },
-
-      setStructure: (partial) => set(partial),
-
-      // Lightweight JSON project file (idea from OpenHome3D discussion #6):
-      // room, openings and registry furniture only — uploaded GLBs stay out of scope.
-      exportProject: () => {
-        const s = get()
-        return JSON.stringify(
-          {
-            version: PROJECT_FILE_VERSION,
-            seed: s.seed,
-            extras: s.extras,
-            home: s.home,
-            // uploaded GLBs stay out of the project file (their blobs live in
-            // IndexedDB and can't travel), so their instances are filtered out
-            furniture: s.furniture.filter((f) => !f.modelId.startsWith('upload:')),
-          },
-          null,
-          2,
-        )
-      },
-
-      importProject: (json) => {
-        let p: any
-        try {
-          p = JSON.parse(json)
-        } catch {
-          return '文件不是有效的 JSON Invalid JSON file'
-        }
-        if (p?.version !== PROJECT_FILE_VERSION)
-          return '项目文件版本不支持 Unsupported project file version'
-        const rawRooms = p.home?.rooms
-        if (!Array.isArray(rawRooms) || rawRooms.length === 0)
-          return '项目文件没有房间 No rooms in project file'
-        // rooms: validate rects, clamp dims, dedupe/keep ids, drop overlaps
-        const idMap = new Map<string, string>() // file id → live id
-        const rooms: RoomDef[] = []
-        for (const r of rawRooms) {
-          const rect = r?.rect
-          if (!rect || ![rect.x, rect.z, rect.w, rect.d].every((v) => Number.isFinite(v))) continue
-          const fileId = typeof r.id === 'string' && r.id ? r.id : ''
-          const id = fileId && !idMap.has(fileId) ? fileId : uid()
-          const room: RoomDef = {
-            id,
-            type: getRoomType(r.type) ? r.type : 'living',
-            name:
-              typeof r.name === 'string' && r.name
-                ? r.name
-                : (getRoomType(r.type)?.label ?? '客厅 Living'),
-            rect: {
-              x: round5cm(rect.x),
-              z: round5cm(rect.z),
-              w: clampDim(rect.w),
-              d: clampDim(rect.d),
-            },
-            salt: Number.isFinite(r.salt) ? Math.max(0, Math.round(r.salt)) : 0,
-            partitionHeight: Number.isFinite(r.partitionHeight)
-              ? Math.max(0, round5cm(r.partitionHeight))
-              : 0,
+        rawSet({ ...patch, ...history.flags() })
+        persistPlanImage(before, after)
+      }
+      const restore = (direction: 'undo' | 'redo') => {
+        const before = get()
+        const next = history[direction](snapshot(before), (current, target) =>
+          target.importSettings ? snapshot(before, true) : current)
+        if (!next) return
+        const { importSettings, ...scene } = next
+        rawSet({ ...scene, ...importSettings, ...history.flags() })
+        persistPlanImage(before, get())
+      }
+      return {
+        planTab: 'room',
+        home: init.home,
+        seed: init.seed,
+        activeRoomId: init.home.rooms[0].id,
+        wallHeight: init.wallHeight,
+        cutawayWalls: true,
+        floorSlab: true,
+        windows: true,
+        doorLeaves: true,
+        showFurniture: true,
+        extras: 85,
+        moveGrid: 0.05,
+        projection: 'isometric',
+        furniture: init.furniture,
+        selectedId: null,
+        selectedOpeningId: null,
+        uploads: [],
+        lastSwapId: null,
+        structureNotice: null,
+        dismissStructureNotice: () => rawSet({ structureNotice: null }),
+        restoreCompleteProject: (project) => {
+          const before = get()
+          history.end()
+          project.uploads.forEach(registerUpload)
+          const uploads = [...before.uploads.filter((u) => !project.uploads.some((next) => next.id === u.id)), ...project.uploads]
+          set({
+            ...project,
+            uploads,
+            ...structurePatch(project.home, null),
+            activeRoomId: project.home.rooms[0].id,
+            selectedId: null,
+            planImageKey: project.planImageUrl ? PLAN_IMAGE_KEY : null,
+          }, true)
+        },
+        planImageKey: null,
+        planImageUrl: null,
+        canUndo: false,
+        canRedo: false,
+        undo: () => restore('undo'),
+        redo: () => restore('redo'),
+        beginEdit: history.begin,
+        endEdit: history.end,
+        restorePlanImage: async () => {
+          const url = (await loadPlanImage()) ?? null
+          history.update((entry) => entry.planImageKey && entry.planImageUrl === null
+            ? { ...entry, planImageUrl: url } : entry)
+          if (get().planImageKey && get().planImageUrl === null) {
+            rawSet({ planImageUrl: url })
+            // A reset followed by undo may have cleared the slot while loading.
+            if (url) await savePlanImage(url)
           }
-          if (rooms.some((o) => roomsOverlap(room, o))) continue
-          rooms.push(room)
-          if (fileId) idMap.set(fileId, id)
-        }
-        if (rooms.length === 0) return '房间尺寸数据无效 Invalid room rect'
-        const home: HomeDef = { rooms, openings: [] }
-        // openings: a/b resolved through the id map ('exterior' stays)
-        for (const o of Array.isArray(p.home?.openings) ? p.home.openings : []) {
-          if (!o || !['door', 'window', 'open'].includes(o.kind)) continue
-          if (!['n', 's', 'e', 'w'].includes(o.side)) continue
-          if (!Number.isFinite(o.offset) || !Number.isFinite(o.width)) continue
-          const a = idMap.get(o.a)
-          const b = o.b === 'exterior' ? 'exterior' : idMap.get(o.b)
-          if (!a || !b) continue
-          const next = clampOpeningToWall(home, {
-            id: typeof o.id === 'string' && o.id ? o.id : uid(),
-            kind: o.kind,
-            a,
-            b,
-            side: o.side,
-            offset: o.offset,
-            width: o.width,
-            ...(o.fullHeight === true ? { fullHeight: true } : {}),
+        },
+
+        setPlanTab: (tab) => set({ planTab: tab }),
+
+        setRoomType: (type) => {
+          const s = get()
+          const room = roomById(s.home, s.activeRoomId)
+          if (!room || room.type === type) return
+          const spec = getRoomType(type)
+          const next: RoomDef = { ...room, type, name: spec.label }
+          const rooms = s.home.rooms.map((r) => (r.id === room.id ? next : r))
+          set({ home: { ...s.home, rooms } })
+        },
+
+        setRoomRect: (roomId, rect) => {
+          const s = get()
+          const room = roomById(s.home, roomId)
+          if (!room) return
+          const nextRect = {
+            x: round5cm(rect.x),
+            z: round5cm(rect.z),
+            w: clampDim(rect.w),
+            d: clampDim(rect.d),
+          }
+          if (Object.entries(nextRect).every(([key, value]) => room.rect[key as keyof RoomDef['rect']] === value)) return
+          const candidate: RoomDef = { ...room, rect: nextRect }
+          // never overlap another room (a shared edge is fine)
+          if (s.home.rooms.some((r) => r.id !== roomId && roomsOverlap(candidate, r))) return
+          const rooms = s.home.rooms.map((r) => (r.id === roomId ? candidate : r))
+          const dimsChanged = nextRect.w !== room.rect.w || nextRect.d !== room.rect.d
+          const home: HomeDef = { ...s.home, rooms }
+          set({
+            ...structurePatch(home, s.selectedOpeningId),
+            ...(dimsChanged ? { furniture: s.furniture.map((f) => f.roomId === roomId ? reclampInstance(f, home) : f) } : {}),
           })
-          if (validateOpening(home, next)) home.openings.push(next)
-        }
-        const fallbackRoom = rooms[0]
-        const furniture: FurnitureInstance[] = []
-        for (const f of Array.isArray(p.furniture) ? p.furniture : []) {
-          const def = f && getModel(f.modelId)
-          if (!def) continue
-          const room = roomById(home, idMap.get(f.roomId) ?? '') ?? fallbackRoom
-          const inst: FurnitureInstance = {
-            id: typeof f.id === 'string' && f.id ? f.id : uid(),
-            roomId: room.id,
-            modelId: def.id,
-            label: def.name,
-            position: [
-              Number.isFinite(f.position?.[0]) ? f.position[0] : 0,
-              Number.isFinite(f.position?.[1]) ? f.position[1] : 0,
-            ],
-            rotationY: Number.isFinite(f.rotationY) ? f.rotationY : 0,
-            params: { ...defaultParams(def), ...(f.params ?? {}) },
-            scale: clamp(Number.isFinite(f.scale) ? f.scale : 1, 0.1, 2),
-          }
-          inst.position = clampedPosition(
-            inst,
-            inst.position[0],
-            inst.position[1],
-            room.rect.w,
-            room.rect.d,
+        },
+
+        setRoomPartition: (height) => {
+          const s = get()
+          const room = roomById(s.home, s.activeRoomId)
+          if (!room) return
+          const h = Math.max(0, round5cm(height))
+          if (room.partitionHeight === h) return
+          const rooms = s.home.rooms.map((r) =>
+            r.id === room.id ? { ...r, partitionHeight: h } : r,
           )
-          furniture.push(inst)
-        }
-        set({
-          seed: typeof p.seed === 'string' && p.seed.trim() ? p.seed.trim().toUpperCase() : randomSeed(),
-          extras: Number.isFinite(p.extras) ? Math.max(0, Math.min(100, Math.round(p.extras))) : 50,
-          home,
-          furniture,
-          activeRoomId: rooms[0].id,
-          selectedId: null,
-          selectedOpeningId: null,
-        })
-        return null
-      },
+          set({ home: { ...s.home, rooms } })
+        },
 
-      setExtras: (n) => {
-        const extras = Math.max(0, Math.min(100, Math.round(n)))
-        const s = get()
-        set({ extras, furniture: regenAll({ seed: s.seed, extras, home: s.home }, s.home.rooms) })
-      },
+        setSeed: (seed) => {
+          const clean = seed.trim().toUpperCase()
+          if (!clean) return
+          const s = get()
+          const rooms = s.home.rooms.map((r) => ({ ...r, salt: 0 }))
+          set({
+            seed: clean,
+            home: { ...s.home, rooms },
+            furniture: rooms.flatMap((room) => {
+              const preserved = s.furniture.filter((f) => f.roomId === room.id && isPreserved(f))
+              return [...preserved, ...layoutForRoom({ seed: clean, extras: s.extras, home: { ...s.home, rooms } }, room, preserved)]
+            }),
+          })
+        },
 
-      setMoveGrid: (n) => set({ moveGrid: Math.max(0.01, n) }),
+        randomizeSeed: () => {
+          get().setSeed(randomSeed())
+        },
 
-      setProjection: (p) => set({ projection: p }),
+        newRoom: () => {
+          const s = get()
+          const seed = randomSeed()
+          const rng = rngFrom(`${seed}:room:living`)
+          const d = typeDefaults('living', rng)
+          const room: RoomDef = {
+            id: uid(),
+            type: 'living',
+            name: getRoomType('living').label,
+            rect: { x: 0, z: 0, w: d.width, d: d.depth },
+            salt: 0,
+            partitionHeight: d.partitionHeight,
+          }
+          const home: HomeDef = {
+            rooms: [room],
+            openings: materializeShell(room, getRoomType('living')),
+          }
+          set({
+            seed,
+            home,
+            activeRoomId: room.id,
+            wallHeight: d.wallHeight,
+            planImageKey: null,
+            planImageUrl: null,
+            furniture: layoutForRoom({ seed, extras: s.extras, home }, room),
+            selectedId: null,
+            selectedOpeningId: null,
+          })
+        },
 
-      addFurniture: (modelId, at) => {
-        const def = getModel(modelId)
-        if (!def) return
-        const s = get()
-        const room = roomById(s.home, s.activeRoomId) ?? s.home.rooms[0]
-        if (!room) return
-        const inst: FurnitureInstance = {
-          id: uid(),
-          roomId: room.id,
-          modelId: def.id,
-          label: def.name,
-          position: [0, 0],
-          rotationY: 0,
-          params: defaultParams(def),
-          scale: 1,
-        }
-        inst.position = clampedPosition(inst, at?.[0] ?? 0, at?.[1] ?? 0, room.rect.w, room.rect.d)
-        set({ furniture: [...s.furniture, inst], selectedId: inst.id })
-      },
+        newHome: (templateId) => {
+          const s = get()
+          const seed = randomSeed()
+          const home = buildHome(templateId, seed)
+          set({
+            seed,
+            home,
+            activeRoomId: home.rooms[0].id,
+            furniture: regenAll({ seed, extras: s.extras, home }, home.rooms),
+            selectedId: null,
+            selectedOpeningId: null,
+            planImageKey: null,
+            planImageUrl: null,
+          })
+        },
 
-      removeFurniture: (id) => {
-        const s = get()
-        set({
-          furniture: s.furniture.filter((f) => f.id !== id),
-          selectedId: s.selectedId === id ? null : s.selectedId,
-        })
-      },
+        /** Adopt an imported home (floor-plan recognition): keep the current seed, lay out every room. */
+        importHome: (home, imageUrl) => {
+          home = reconcileOpenings(home).home
+          const s = get()
+          set({
+            home,
+            activeRoomId: home.rooms[0].id,
+            furniture: regenAll({ seed: s.seed, extras: s.extras, home }, home.rooms),
+            planImageKey: imageUrl ? PLAN_IMAGE_KEY : null,
+            planImageUrl: imageUrl ?? null,
+            selectedId: null,
+            selectedOpeningId: null,
+          })
+        },
 
-      duplicateFurniture: (id) => {
-        const s = get()
-        const src = s.furniture.find((f) => f.id === id)
-        if (!src) return
-        const room = roomById(s.home, src.roomId)
-        if (!room) return
-        const copy: FurnitureInstance = {
-          ...src,
-          id: uid(),
-          params: { ...src.params },
-          position: [src.position[0], src.position[1]],
-        }
-        copy.position = clampedPosition(
-          copy,
-          src.position[0] + 0.3,
-          src.position[1] + 0.3,
-          room.rect.w,
-          room.rect.d,
-        )
-        set({ furniture: [...s.furniture, copy], selectedId: copy.id })
-      },
+        setPlanImage: (dataUrl) => {
+          set({ planImageKey: PLAN_IMAGE_KEY, planImageUrl: dataUrl })
+        },
 
-      swapModel: (id, newModelId) => {
-        const def = getModel(newModelId)
-        if (!def) return
-        const s = get()
-        set({
-          furniture: s.furniture.map((f) =>
-            f.id === id
-              ? reclampInstance(
-                  { ...f, modelId: def.id, label: def.name, params: defaultParams(def) },
-                  s.home,
-                )
-              : f,
-          ),
-          lastSwapId: newModelId,
-        })
-      },
+        clearPlanImage: () => {
+          set({ planImageKey: null, planImageUrl: null })
+        },
 
-      moveFurniture: (id, x, z) => {
-        const s = get()
-        set({
-          furniture: s.furniture.map((f) => {
-            if (f.id !== id) return f
-            const room = roomById(s.home, f.roomId)
-            return room
-              ? { ...f, position: clampedPosition(f, x, z, room.rect.w, room.rect.d) }
-              : f
-          }),
-        })
-      },
+        rebuild: () => {
+          const s = get()
+          const room = roomById(s.home, s.activeRoomId)
+          if (!room) return
+          set({ furniture: regenRoom(s, room), selectedId: null })
+        },
 
-      rotateFurniture: (id, rotationY) => {
-        const s = get()
-        set({
-          furniture: s.furniture.map((f) => {
-            if (f.id !== id) return f
-            const room = roomById(s.home, f.roomId)
-            if (!room) return f
-            const next = { ...f, rotationY }
-            next.position = clampedPosition(
-              next,
-              f.position[0],
-              f.position[1],
+        reshuffleFurniture: () => {
+          const s = get()
+          const room = roomById(s.home, s.activeRoomId)
+          if (!room) return
+          const next: RoomDef = { ...room, salt: room.salt + 1 }
+          const rooms = s.home.rooms.map((r) => (r.id === room.id ? next : r))
+          set({
+            home: { ...s.home, rooms },
+            furniture: regenRoom(s, next, { ...s.home, rooms }),
+            selectedId: null,
+          })
+        },
+
+        addRoom: (type) => {
+          const s = get()
+          const active = roomById(s.home, s.activeRoomId) ?? s.home.rooms[0]
+          if (!active) return
+          const t = type ?? 'living'
+          const spec = getRoomType(t)
+          const d = typeDefaults(t, rngFrom(`${s.seed}:room:${t}`))
+          const room: RoomDef = {
+            id: uid(),
+            type: t,
+            name: spec.label,
+            rect: {
+              // east of the active room, gap 0, same depth (shared n/s edges)
+              x: active.rect.x + active.rect.w / 2 + d.width / 2,
+              z: active.rect.z,
+              w: d.width,
+              d: active.rect.d,
+            },
+            salt: 0,
+            partitionHeight: d.partitionHeight,
+          }
+          // Move directly beyond every colliding room. Each step passes at least
+          // one south edge, so this terminates in at most rooms.length steps.
+          let blockers = s.home.rooms.filter((r) => roomsOverlap(room, r))
+          while (blockers.length) {
+            room.rect.z = Math.max(...blockers.map((r) => r.rect.z + r.rect.d / 2)) + room.rect.d / 2
+            blockers = s.home.rooms.filter((r) => roomsOverlap(room, r))
+          }
+          const home: HomeDef = { rooms: [...s.home.rooms, room], openings: s.home.openings }
+          // shell openings that violate placement rules (e.g. a window landing on
+          // a now-shared interior wall) are dropped, same contract as addOpening
+          const shell = materializeShell(room, spec).flatMap((o) => { const next = fitOpening(home, o); return next ? [next] : [] })
+          const nextHome: HomeDef = { ...home, openings: [...home.openings, ...shell] }
+          set({
+            ...structurePatch(nextHome, s.selectedOpeningId),
+            activeRoomId: room.id,
+            furniture: [
+              ...s.furniture,
+              ...layoutForRoom({ seed: s.seed, extras: s.extras, home: nextHome }, room),
+            ],
+          })
+        },
+
+        removeRoom: (roomId) => {
+          const s = get()
+          if (s.home.rooms.length <= 1) return // keep at least one room
+          if (!roomById(s.home, roomId)) return
+          const rooms = s.home.rooms.filter((r) => r.id !== roomId)
+          const openings = s.home.openings.filter((o) => o.a !== roomId && o.b !== roomId)
+          set({
+            ...structurePatch({ rooms, openings: s.home.openings }, s.selectedOpeningId),
+            furniture: s.furniture.filter((f) => f.roomId !== roomId),
+            activeRoomId: s.activeRoomId === roomId ? rooms[0].id : s.activeRoomId,
+            selectedId: s.furniture.some((f) => f.id === s.selectedId && f.roomId === roomId)
+              ? null
+              : s.selectedId,
+            selectedOpeningId: openings.some((o) => o.id === s.selectedOpeningId)
+              ? s.selectedOpeningId
+              : null,
+          })
+        },
+
+        selectRoom: (roomId) => {
+          if (roomById(get().home, roomId))
+            set({ activeRoomId: roomId, selectedOpeningId: null, selectedId: null })
+        },
+
+        selectOpening: (id) => set({ selectedOpeningId: id }),
+
+        addOpening: (o) => {
+          const s = get()
+          if (!roomById(s.home, o.a)) return
+          const next = fitOpening(s.home, { ...o, id: uid() })
+          if (!next) { set({ structureNotice: '该墙段无法放置门窗 No suitable wall segment for this opening' }); return }
+          set({ home: { ...s.home, openings: [...s.home.openings, next] } })
+        },
+        removeOpening: (id) => {
+          const s = get()
+          if (!s.home.openings.some((o) => o.id === id)) return
+          set({
+            home: { ...s.home, openings: s.home.openings.filter((o) => o.id !== id) },
+            selectedOpeningId: s.selectedOpeningId === id ? null : s.selectedOpeningId,
+          })
+        },
+
+        updateOpening: (id, partial) => {
+          const s = get()
+          const cur = s.home.openings.find((o) => o.id === id)
+          if (!cur) return
+          const next = fitOpening(s.home, { ...cur, ...partial, id: cur.id })
+          if (!next) { set({ structureNotice: '该墙段无法放置门窗 No suitable wall segment for this opening' }); return }
+          if (Object.entries(next).every(([key, value]) => cur[key as keyof Opening] === value)) return
+          set({
+            home: { ...s.home, openings: s.home.openings.map((o) => (o.id === id ? next : o)) },
+          })
+        },
+
+        setStructure: (partial) => set(partial),
+
+        // Lightweight JSON project file (idea from OpenHome3D discussion #6):
+        // room, openings and registry furniture only — uploaded GLBs stay out of scope.
+        exportProject: () => {
+          const s = get()
+          return JSON.stringify(
+            {
+              version: PROJECT_FILE_VERSION,
+              seed: s.seed,
+              extras: s.extras,
+              home: s.home,
+              // uploaded GLBs stay out of the project file (their blobs live in
+              // IndexedDB and can't travel), so their instances are filtered out
+              furniture: s.furniture.filter((f) => !f.modelId.startsWith('upload:')),
+            },
+            null,
+            2,
+          )
+        },
+
+        importProject: (json) => {
+          let p: any
+          try {
+            p = JSON.parse(json)
+          } catch {
+            return '文件不是有效的 JSON Invalid JSON file'
+          }
+          if (p?.version !== PROJECT_FILE_VERSION)
+            return '项目文件版本不支持 Unsupported project file version'
+          const rawRooms = p.home?.rooms
+          if (!Array.isArray(rawRooms) || rawRooms.length === 0)
+            return '项目文件没有房间 No rooms in project file'
+          // Keep stable IDs when possible; duplicate IDs must not couple unrelated edits.
+          const ids = new Set<string>()
+          const claimId = (value: unknown): string => {
+            const id = typeof value === 'string' && value && !ids.has(value) ? value : uid()
+            ids.add(id)
+            return id
+          }
+          // rooms: validate rects, clamp dims, dedupe/keep ids, drop overlaps
+          const idMap = new Map<string, string>() // file id → live id
+          const rooms: RoomDef[] = []
+          for (const r of rawRooms) {
+            const rect = r?.rect
+            if (!rect || ![rect.x, rect.z, rect.w, rect.d].every((v) => Number.isFinite(v))) continue
+            const fileId = typeof r.id === 'string' && r.id ? r.id : ''
+            const id = claimId(fileId)
+            const room: RoomDef = {
+              id,
+              type: getRoomType(r.type).id,
+              name:
+                typeof r.name === 'string' && r.name
+                  ? r.name
+                  : getRoomType(r.type).label,
+              rect: {
+                x: round5cm(rect.x),
+                z: round5cm(rect.z),
+                w: clampDim(rect.w),
+                d: clampDim(rect.d),
+              },
+              salt: Number.isFinite(r.salt) ? Math.max(0, Math.round(r.salt)) : 0,
+              partitionHeight: Number.isFinite(r.partitionHeight)
+                ? Math.max(0, round5cm(r.partitionHeight))
+                : 0,
+            }
+            if (rooms.some((o) => roomsOverlap(room, o))) continue
+            rooms.push(room)
+            if (fileId && !idMap.has(fileId)) idMap.set(fileId, id)
+          }
+          if (rooms.length === 0) return '房间尺寸数据无效 Invalid room rect'
+          const home: HomeDef = { rooms, openings: [] }
+          // openings: a/b resolved through the id map ('exterior' stays)
+          for (const o of Array.isArray(p.home?.openings) ? p.home.openings : []) {
+            if (!o || !['door', 'window', 'open'].includes(o.kind)) continue
+            if (!['n', 's', 'e', 'w'].includes(o.side)) continue
+            if (!Number.isFinite(o.offset) || !Number.isFinite(o.width)) continue
+            const a = idMap.get(o.a)
+            const b = o.b === 'exterior' ? 'exterior' : idMap.get(o.b)
+            if (!a || !b) continue
+            const next = fitOpening(home, {
+              id: claimId(o.id),
+              kind: o.kind,
+              a,
+              b,
+              side: o.side,
+              offset: o.offset,
+              width: o.width,
+              ...(o.fullHeight === true ? { fullHeight: true } : {}),
+            })
+            if (next) home.openings.push(next)
+          }
+          const fallbackRoom = rooms[0]
+          const furniture: FurnitureInstance[] = []
+          for (const f of Array.isArray(p.furniture) ? p.furniture : []) {
+            const def = f && getModel(f.modelId)
+            if (!def) continue
+            const room = roomById(home, idMap.get(f.roomId) ?? '') ?? fallbackRoom
+            const params = defaultParams(def)
+            for (const spec of def.params ?? []) {
+              const value = f.params?.[spec.key]
+              if (spec.kind === 'boolean' && typeof value === 'boolean') params[spec.key] = value
+              if (spec.kind === 'number' && Number.isFinite(value)) {
+                params[spec.key] = clamp(value, spec.min ?? -Infinity, spec.max ?? Infinity)
+              }
+            }
+            const inst: FurnitureInstance = {
+              id: claimId(f.id),
+              roomId: room.id,
+              modelId: def.id,
+              label: def.name,
+              position: [
+                Number.isFinite(f.position?.[0]) ? f.position[0] : 0,
+                Number.isFinite(f.position?.[1]) ? f.position[1] : 0,
+              ],
+              rotationY: Number.isFinite(f.rotationY) ? f.rotationY : 0,
+              params,
+              scale: clamp(Number.isFinite(f.scale) ? f.scale : 1, 0.1, 2),
+              ...(f.source === 'generated' || f.source === 'manual' ? { source: f.source } : {}),
+              ...(typeof f.decor === 'boolean' ? { decor: f.decor } : {}),
+              ...(typeof f.locked === 'boolean' ? { locked: f.locked } : {}),
+            }
+            inst.position = clampedPosition(
+              inst,
+              inst.position[0],
+              inst.position[1],
               room.rect.w,
               room.rect.d,
             )
-            return next
-          }),
-        })
-      },
+            furniture.push(inst)
+          }
+          set({
+            seed: typeof p.seed === 'string' && p.seed.trim() ? p.seed.trim().toUpperCase() : randomSeed(),
+            extras: Number.isFinite(p.extras) ? Math.max(0, Math.min(100, Math.round(p.extras))) : 50,
+            home,
+            furniture,
+            activeRoomId: rooms[0].id,
+            selectedId: null,
+            selectedOpeningId: null,
+            planImageKey: null,
+            planImageUrl: null,
+          })
+          return null
+        },
 
-      nudgeFurniture: (id, dx, dz) => {
-        const s = get()
-        const f = s.furniture.find((it) => it.id === id)
-        if (!f) return
-        get().moveFurniture(id, f.position[0] + dx, f.position[1] + dz)
-      },
+        setExtras: (n) => {
+          const extras = Math.max(0, Math.min(100, Math.round(n)))
+          const s = get()
+          if (extras === s.extras) return
+          const furniture = s.home.rooms.flatMap((room) => {
+            const preserved = s.furniture.filter((f) => f.roomId === room.id && (isPreserved(f) || !f.decor))
+            return [...preserved, ...layoutForRoom({ seed: s.seed, extras, home: s.home }, room, preserved, true)]
+          })
+          set({ extras, furniture })
+        },
 
-      setScale: (id, scale) => {
-        if (!Number.isFinite(scale)) return
-        const s = get()
-        const nextScale = clamp(scale, 0.1, 2)
-        set({
-          furniture: s.furniture.map((f) =>
-            f.id === id ? reclampInstance({ ...f, scale: nextScale }, s.home) : f,
-          ),
-        })
-      },
+        setMoveGrid: (n) => set({ moveGrid: Math.max(0.01, n) }),
 
-      setParam: (id, key, value) => {
-        const s = get()
-        set({
-          furniture: s.furniture.map((f) =>
-            f.id === id
-              ? reclampInstance({ ...f, params: { ...f.params, [key]: value } }, s.home)
-              : f,
-          ),
-        })
-      },
+        setProjection: (p) => set({ projection: p }),
 
-      resetShape: (id) => {
-        const s = get()
-        set({
-          furniture: s.furniture.map((f) => {
-            if (f.id !== id) return f
-            const def = getModel(f.modelId)
-            return def
-              ? reclampInstance({ ...f, params: defaultParams(def), scale: 1 }, s.home)
-              : f
-          }),
-        })
-      },
+        addFurniture: (modelId, at) => {
+          const def = getModel(modelId)
+          if (!def) return
+          const s = get()
+          const room = roomById(s.home, s.activeRoomId) ?? s.home.rooms[0]
+          if (!room) return
+          const inst: FurnitureInstance = {
+            id: uid(),
+            roomId: room.id,
+            modelId: def.id,
+            label: def.name,
+            position: [0, 0],
+            rotationY: 0,
+            params: defaultParams(def),
+            scale: 1,
+            source: 'manual',
+          }
+          inst.position = clampedPosition(inst, at?.[0] ?? 0, at?.[1] ?? 0, room.rect.w, room.rect.d)
+          set({ furniture: [...s.furniture, inst], selectedId: inst.id })
+        },
 
-      select: (id) => set({ selectedId: id }),
+        removeFurniture: (id) => {
+          const s = get()
+          if (!s.furniture.some((f) => f.id === id)) return
+          set({
+            furniture: s.furniture.filter((f) => f.id !== id),
+            selectedId: s.selectedId === id ? null : s.selectedId,
+          })
+        },
 
-      addUpload: (def) => {
-        registerUpload(def)
-        const s = get()
-        if (s.uploads.some((u) => u.id === def.id)) return
-        set({ uploads: [...s.uploads, def] })
-      },
+        duplicateFurniture: (id) => {
+          const s = get()
+          const src = s.furniture.find((f) => f.id === id)
+          if (!src) return
+          const room = roomById(s.home, src.roomId)
+          if (!room) return
+          const copy: FurnitureInstance = {
+            ...src,
+            id: uid(),
+            source: 'manual',
+            params: { ...src.params },
+            position: [src.position[0], src.position[1]],
+          }
+          copy.position = clampedPosition(
+            copy,
+            src.position[0] + 0.3,
+            src.position[1] + 0.3,
+            room.rect.w,
+            room.rect.d,
+          )
+          set({ furniture: [...s.furniture, copy], selectedId: copy.id })
+        },
 
-      removeUpload: (id) => {
-        unregisterUpload(id)
-        const s = get()
-        const removedIds = new Set(
-          s.furniture.filter((f) => f.modelId === id).map((f) => f.id),
-        )
-        set({
-          uploads: s.uploads.filter((u) => u.id !== id),
-          furniture: s.furniture.filter((f) => f.modelId !== id),
-          selectedId: s.selectedId && removedIds.has(s.selectedId) ? null : s.selectedId,
-        })
-      },
-    }),
+        swapModel: (id, newModelId) => {
+          const def = getModel(newModelId)
+          if (!def) return
+          const s = get()
+          if (!s.furniture.some((f) => f.id === id)) return
+          set({
+            furniture: s.furniture.map((f) =>
+              f.id === id
+                ? reclampInstance(
+                    { ...f, source: 'manual', modelId: def.id, label: def.name, params: defaultParams(def) },
+                    s.home,
+                  )
+                : f,
+            ),
+            lastSwapId: newModelId,
+          })
+        },
+
+        moveFurniture: (id, x, z) => {
+          const s = get()
+          const item = s.furniture.find((f) => f.id === id)
+          const room = item && roomById(s.home, item.roomId)
+          if (!item || !room) return
+          const position = clampedPosition(item, x, z, room.rect.w, room.rect.d)
+          if (position[0] === item.position[0] && position[1] === item.position[1]) return
+          set({ furniture: s.furniture.map((f) => f.id === id ? { ...f, source: 'manual', position } : f) })
+        },
+
+        rotateFurniture: (id, rotationY) => {
+          const s = get()
+          const item = s.furniture.find((f) => f.id === id)
+          if (!item || item.rotationY === rotationY) return
+          set({
+            furniture: s.furniture.map((f) => {
+              if (f.id !== id) return f
+              const room = roomById(s.home, f.roomId)
+              if (!room) return f
+              const next: FurnitureInstance = { ...f, source: 'manual', rotationY }
+              next.position = clampedPosition(
+                next,
+                f.position[0],
+                f.position[1],
+                room.rect.w,
+                room.rect.d,
+              )
+              return next
+            }),
+          })
+        },
+
+        nudgeFurniture: (id, dx, dz) => {
+          const s = get()
+          const f = s.furniture.find((it) => it.id === id)
+          if (!f) return
+          get().moveFurniture(id, f.position[0] + dx, f.position[1] + dz)
+        },
+
+        setFurnitureLocked: (id, locked) => {
+          const s = get()
+          const item = s.furniture.find((f) => f.id === id)
+          if (!item || isPreserved(item) === locked) return
+          set({ furniture: s.furniture.map((f) => f.id === id ? { ...f, locked, ...(locked ? {} : { source: 'generated' as const }) } : f) })
+        },
+
+        setScale: (id, scale) => {
+          if (!Number.isFinite(scale)) return
+          const s = get()
+          const nextScale = clamp(scale, 0.1, 2)
+          const item = s.furniture.find((f) => f.id === id)
+          if (!item || item.scale === nextScale) return
+          set({
+            furniture: s.furniture.map((f) =>
+              f.id === id ? reclampInstance({ ...f, source: 'manual', scale: nextScale }, s.home) : f,
+            ),
+          })
+        },
+
+        setParam: (id, key, value) => {
+          const s = get()
+          const item = s.furniture.find((f) => f.id === id)
+          if (!item || item.params[key] === value) return
+          set({
+            furniture: s.furniture.map((f) =>
+              f.id === id
+                ? reclampInstance({ ...f, source: 'manual', params: { ...f.params, [key]: value } }, s.home)
+                : f,
+            ),
+          })
+        },
+
+        resetShape: (id) => {
+          const s = get()
+          const item = s.furniture.find((f) => f.id === id)
+          const def = item && getModel(item.modelId)
+          if (!item || !def) return
+          const params = defaultParams(def)
+          if (item.scale === 1 && Object.keys(item.params).length === Object.keys(params).length &&
+            Object.entries(params).every(([key, value]) => item.params[key] === value)) return
+          set({
+            furniture: s.furniture.map((f) => f.id === id
+              ? reclampInstance({ ...f, source: 'manual', params, scale: 1 }, s.home) : f),
+          })
+        },
+
+        select: (id) => set({ selectedId: id }),
+
+        addUpload: (def) => {
+          registerUpload(def)
+          const s = get()
+          if (s.uploads.some((u) => u.id === def.id)) return
+          set({ uploads: [...s.uploads, def] })
+        },
+
+        removeUpload: (id) => {
+          // Blob deletion is outside scene history: do not restore dangling models.
+          const s = get()
+          if (!s.uploads.some((u) => u.id === id)) return
+          history.clear()
+          unregisterUpload(id)
+          const removedIds = new Set(
+            s.furniture.filter((f) => f.modelId === id).map((f) => f.id),
+          )
+          rawSet({
+            ...history.flags(),
+            uploads: s.uploads.filter((u) => u.id !== id),
+            furniture: s.furniture.filter((f) => f.modelId !== id),
+            selectedId: s.selectedId && removedIds.has(s.selectedId) ? null : s.selectedId,
+          })
+        },
+      }
+    },
     {
       name: 'openhome3d',
       version: 2,
@@ -840,6 +998,8 @@ export const useStore = create<HGState>()(
       onRehydrateStorage: () => (state) => {
         // restored uploads are metadata-only in storage; re-register them in the live registry
         state?.uploads.forEach((u) => registerUpload(u))
+        if (state?.planImageKey) void state.restorePlanImage().catch(() => {})
+        if (state) state.home = reconcileOpenings(state.home).home
         // activeRoomId is not persisted: fall back to the first room
         if (state && !state.home.rooms.some((r) => r.id === state.activeRoomId)) {
           state.activeRoomId = state.home.rooms[0]?.id ?? ''

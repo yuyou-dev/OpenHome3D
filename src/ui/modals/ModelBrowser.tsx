@@ -10,6 +10,7 @@ import {
   type ModelDef,
 } from '../../models/registry'
 import { PARAMETRIC_COMPONENTS } from '../../models/parametric/index'
+import { matchesModelSearch } from '../../models/search'
 import { MODEL_BLOB_KEY } from '../../three/runtime'
 import { evictThumbnail, getThumbnail } from '../../lib/thumbnails'
 import { useUI } from '../uiStore'
@@ -236,9 +237,8 @@ export default function ModelBrowser({ mode }: { mode: 'swap' | 'add' }) {
     useUI.getState().consumeForcedBrand()
   }, [])
 
-  const q = search.trim().toLowerCase()
   const models = allModels()
-  const matchSearch = (m: ModelDef) => !q || m.name.toLowerCase().includes(q)
+  const matchSearch = (m: ModelDef) => matchesModelSearch(m, search)
   const brandFiltered = models.filter((m) => (brand === 'ALL' || m.brand === brand) && matchSearch(m))
   const visible = brandFiltered.filter((m) => type === 'ALL' || m.type === type)
 

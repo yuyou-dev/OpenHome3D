@@ -4,7 +4,7 @@
  *
  *   node scripts/doctor.mjs [--json]
  *
- * Checks, in order: Node >= 20, codex CLI on PATH (or HOME3D_CODEX_BIN),
+ * Checks, in order: package Node engines, compatible codex CLI (or HOME3D_CODEX_BIN),
  * codex login status, dev-server port availability. Output is a three-state
  * verdict: ready | action_required | blocked (machine-readable with --json;
  * never reads credential files — `codex login status` is the only auth probe).
@@ -14,6 +14,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:net'
+import { CODEX_MODEL, CODEX_REASONING_EFFORT, MIN_CODEX_VERSION, supportsCodexModel } from './ai-config.mjs'
 
 const JSON_MODE = process.argv.includes('--json')
 
@@ -33,9 +34,10 @@ function run(cmd, args, timeoutMs = 5000) {
   return { code: r.status, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim(), error: r.error }
 }
 
-// 1. Node >= 20 (engines floor for the toolchain)
-const [nodeMajor] = process.versions.node.split('.').map(Number)
-check('node', nodeMajor >= 20, `node ${process.versions.node}`, 'Install Node.js >= 20 (https://nodejs.org)')
+// 1. Match package engines: ^20.19.0 || >=22.12.0.
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number)
+const nodeSupported = nodeMajor === 20 && nodeMinor >= 19 || nodeMajor === 22 && nodeMinor >= 12 || nodeMajor > 22
+check('node', nodeSupported, `node ${process.versions.node}`, `Install Node.js ${pkg.engines.node} (https://nodejs.org)`)
 
 // 2. codex CLI resolvable + version
 const ver = run(CODEX_BIN, ['--version'])
@@ -56,7 +58,7 @@ if (ver.error?.code === 'ENOENT') {
     hint: 'codex CLI found but failed to run — check HOME3D_CODEX_BIN / reinstall',
   })
 } else {
-  check('codex-cli', true, ver.stdout.split('\n')[0])
+  check('codex-cli', supportsCodexModel(ver.stdout), ver.stdout.split('\n')[0], `GPT-6 Astra requires codex CLI >= ${MIN_CODEX_VERSION}. Run: npm i -g @openai/codex@latest`)
 }
 
 // 3. codex login status (the AI endpoints spawn codex exec as a child process)
@@ -78,11 +80,12 @@ const portOpen = await new Promise((resolve) => {
 })
 check('port', portOpen, portOpen ? 'a free loopback port is available' : 'no free loopback port', undefined)
 
-const out = { ok: verdict === 'ready', verdict, name: pkg.name, checks }
+const out = { ok: verdict === 'ready', verdict, name: pkg.name, codexModel: CODEX_MODEL, reasoningEffort: CODEX_REASONING_EFFORT, checks }
 if (JSON_MODE) {
   console.log(JSON.stringify(out, null, 2))
 } else {
   console.log(`OpenHome3D doctor — verdict: ${verdict}`)
+  console.log(`  AI: ${CODEX_MODEL} · reasoning ${CODEX_REASONING_EFFORT}`)
   for (const c of checks) {
     console.log(`  ${c.ok ? '✓' : '✗'} ${c.id}: ${c.detail}${c.hint ? `\n    → ${c.hint}` : ''}`)
   }

@@ -2,7 +2,7 @@
  * Client helpers for the local codex-powered AI API (see scripts/ai-api.mjs).
  * All AI work runs through the local codex CLI — no other backend.
  */
-import { get, keys } from 'idb-keyval'
+import { del, delMany, get, keys, set, setMany } from 'idb-keyval'
 import type { FurnitureInstance } from '../models/registry'
 
 export interface AiStatus {
@@ -18,6 +18,7 @@ export interface AiStatus {
   /** which endpoint holds the slot */
   busyKind?: 'understand' | 'render' | null
   model: string
+  codexModel?: string
 }
 
 export interface AiRenderResult {
@@ -25,6 +26,7 @@ export interface AiRenderResult {
   image: string // data:image/png;base64,...
   durationMs: number
   model: string
+  codexModel?: string
   aspect: string
 }
 
@@ -40,6 +42,7 @@ export interface AiRenderError {
 export interface UnderstandResult {
   ok: true
   plan: unknown
+  codexModel?: string
   durationMs: number
 }
 
@@ -53,6 +56,8 @@ export interface UnderstandError {
 }
 
 export async function aiStatus(): Promise<AiStatus | null> {
+  // Built previews and Pages have no local middleware; avoid repeated 404 probes.
+  if (import.meta.env.PROD) return null
   try {
     const r = await fetch('/api/ai/status', { cache: 'no-store' })
     return (await r.json()) as AiStatus
@@ -83,7 +88,7 @@ export async function aiRender(opts: {
     return (await r.json()) as AiRenderResult | AiRenderError
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      return { ok: false, code: 'error', error: 'cancelled' }
+      return { ok: false, code: 'cancelled', error: 'cancelled' }
     }
     return { ok: false, code: 'error', error: String(err) }
   }
@@ -109,7 +114,7 @@ export async function understandPlan(
     return (await r.json()) as UnderstandResult | UnderstandError
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      return { ok: false, code: 'error', error: 'cancelled' }
+      return { ok: false, code: 'cancelled', error: 'cancelled' }
     }
     return { ok: false, code: 'error', error: String(err) }
   }
@@ -200,7 +205,7 @@ export async function collectReferencePhotos(
 }
 
 // ---------------------------------------------------------------------------
-// Render history (IndexedDB): meta index + one record per render (data URL).
+// Render history (IndexedDB): metadata index + source/result snapshot per render.
 // ---------------------------------------------------------------------------
 
 export interface RenderMeta {
@@ -225,29 +230,42 @@ export async function historyList(): Promise<RenderMeta[]> {
   return Array.isArray(idx) ? (idx as RenderMeta[]) : []
 }
 
-export async function historyImage(id: string): Promise<string | null> {
-  const v = await get(RECORD_KEY(id))
-  return typeof v === 'string' ? v : null
+export interface RenderRecord {
+  version: 1
+  image: string
+  /** Missing for legacy renders: never compare those with the current project. */
+  source?: string
+  prompt?: string
+  referenceImages?: string[]
 }
 
-export async function historyAdd(meta: RenderMeta, image: string): Promise<RenderMeta[]> {
+export async function historyRecord(id: string): Promise<RenderRecord | null> {
+  const value = await get<string | RenderRecord>(RECORD_KEY(id))
+  // Existing records were plain image strings; adapt without rewriting user data.
+  if (typeof value === 'string') return { version: 1, image: value }
+  return value?.version === 1 && typeof value.image === 'string' ? value : null
+}
+
+export async function historyImage(id: string): Promise<string | null> {
+  return (await historyRecord(id))?.image ?? null
+}
+
+export async function historyAdd(meta: RenderMeta, record: RenderRecord | string): Promise<RenderMeta[]> {
   const idx = await historyList()
   const next = [meta, ...idx.filter((m) => m.id !== meta.id)].slice(0, HISTORY_CAP)
-  await Promise.all([
-    // drop evicted records
-    ...idx
-      .filter((m) => !next.some((n) => n.id === m.id))
-      .map((m) => import('idb-keyval').then(({ del }) => del(RECORD_KEY(m.id)))),
-    import('idb-keyval').then(({ set }) => set(RECORD_KEY(meta.id), image)),
-    import('idb-keyval').then(({ set }) => set(INDEX_KEY, next)),
+  // Commit source/result and index together; a quota error must not leave a
+  // thumbnail pointing to a record that was never saved.
+  await setMany([
+    [RECORD_KEY(meta.id), typeof record === 'string' ? { version: 1, image: record } : record],
+    [INDEX_KEY, next],
   ])
+  await delMany(idx.filter((m) => !next.some((n) => n.id === m.id)).map((m) => RECORD_KEY(m.id)))
   return next
 }
 
 export async function historyRemove(id: string): Promise<RenderMeta[]> {
   const idx = await historyList()
   const next = idx.filter((m) => m.id !== id)
-  const { del, set } = await import('idb-keyval')
   await del(RECORD_KEY(id))
   await set(INDEX_KEY, next)
   return next

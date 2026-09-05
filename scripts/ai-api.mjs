@@ -33,13 +33,14 @@
  *   workspace-write (read-only sandboxes don't register image_gen at all).
  */
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline'
+import { CODEX_MODEL, CODEX_REASONING_EFFORT, MODEL_LABEL, MIN_CODEX_VERSION, supportsCodexModel } from './ai-config.mjs'
 
 const CODEX_BIN = process.env.HOME3D_CODEX_BIN || 'codex'
 const CODEX_HOME = process.env.CODEX_HOME || join(homedir(), '.codex')
-const MODEL_LABEL = 'codex image_gen'
 
 const UNDERSTAND_TIMEOUT_MS = 180_000
 const RENDER_TIMEOUT_MS = 240_000
@@ -168,11 +169,23 @@ function extractLastJson(text) {
 
 let codexCheckCache = { at: 0, result: null }
 
-/** codex login probe, cached ~30 s to avoid spawn-per-poll. */
+/** Check CLI compatibility before asking it to log in or run GPT-6. */
+async function codexVersionError() {
+  const r = await runCodex(['--version'], 3_000)
+  if (r.error === 'ENOENT') return 'codex CLI not found on PATH'
+  if (r.timedOut) return 'codex version check timed out'
+  if (r.error || r.code !== 0) return 'codex CLI failed to report its version'
+  if (!supportsCodexModel(r.stdout)) return `codex CLI >= ${MIN_CODEX_VERSION} required for GPT-6 Astra — update: npm i -g @openai/codex@latest`
+  return null
+}
+
+/** Successful compatibility/login probes are cached ~30 s to avoid spawn-per-poll. */
 async function codexAvailability() {
-  if (codexCheckCache.result && Date.now() - codexCheckCache.at < CODEX_CHECK_TTL_MS) {
+  if (codexCheckCache.result?.available && Date.now() - codexCheckCache.at < CODEX_CHECK_TTL_MS) {
     return codexCheckCache.result
   }
+  const versionError = await codexVersionError()
+  if (versionError) return { available: false, reason: versionError }
   const r = await runCodex(['login', 'status'], 3_000)
   let result
   if (r.error === 'ENOENT') result = { available: false, reason: 'codex CLI not found on PATH' }
@@ -201,18 +214,30 @@ function busyResponse(res) {
   })
 }
 
-/** Preflight: slot + codex login. Returns true when the request may proceed. */
-async function preflight(res) {
+/** Check login, then atomically claim the shared slot before returning it. */
+async function preflight(kind, res) {
   if (codexCurrent) {
     busyResponse(res)
-    return false
+    return null
+  }
+  const versionError = await codexVersionError()
+  if (versionError) {
+    send(res, { ok: false, code: 'error', error: versionError })
+    return null
   }
   const login = await runCodex(['login', 'status'], 3_000)
   if (login.error || login.timedOut || login.code !== 0) {
     send(res, { ok: false, code: 'auth', error: 'codex CLI not logged in — run: codex login' })
-    return false
+    return null
   }
-  return true
+  // Other requests can finish their login probe while this one is awaiting it.
+  if (codexCurrent) {
+    busyResponse(res)
+    return null
+  }
+  if (res.destroyed) return null
+  codexCurrent = { kind, startedAt: Date.now(), kill: null }
+  return codexCurrent
 }
 
 /** Escape hatch: SIGKILL the in-flight codex task of the given kind. */
@@ -227,6 +252,7 @@ async function readImageBody(req, res) {
   let body
   try {
     body = JSON.parse(await readBody(req))
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid body')
   } catch {
     send(res, { ok: false, code: 'error', error: 'invalid request body' }, 400)
     return null
@@ -340,10 +366,8 @@ const PLAN_SCHEMA = {
 async function handleUnderstand(req, res) {
   const parsed = await readImageBody(req, res)
   if (!parsed) return
-  if (!(await preflight(res))) return
-
-  const current = { kind: 'understand', startedAt: Date.now(), kill: null }
-  codexCurrent = current
+  const current = await preflight('understand', res)
+  if (!current) return
   const started = current.startedAt
   let dir = null
   // client went away (page refresh / abort) → kill the codex subprocess so
@@ -352,7 +376,7 @@ async function handleUnderstand(req, res) {
     if (!res.writableEnded && codexCurrent === current) current.kill?.()
   })
   try {
-    dir = mkdtempSync(join(tmpdir(), 'home3d-ai-'))
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'home3d-ai-')))
     const imageFile = join(dir, `image.${parsed.images[0].ext}`)
     writeFileSync(imageFile, parsed.images[0].data)
     const schemaFile = join(dir, 'schema.json')
@@ -361,6 +385,8 @@ async function handleUnderstand(req, res) {
     const rp = runCodex(
       [
         'exec',
+        '--model', CODEX_MODEL,
+        '-c', `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
         '--skip-git-repo-check',
         '--ephemeral',
         '-s',
@@ -398,7 +424,7 @@ async function handleUnderstand(req, res) {
     if (!plan || !plan.overall || !Array.isArray(plan.rooms) || plan.rooms.length === 0) {
       return send(res, { ok: false, code: 'error', error: 'unparseable model output' })
     }
-    send(res, { ok: true, plan, durationMs: Date.now() - started, engine: 'codex' })
+    send(res, { ok: true, plan, durationMs: Date.now() - started, engine: 'codex', codexModel: CODEX_MODEL })
   } finally {
     if (codexCurrent === current) codexCurrent = null
     if (dir) rmSync(dir, { recursive: true, force: true })
@@ -410,39 +436,34 @@ async function handleUnderstand(req, res) {
 // the PNG arrives as inline base64 in the session rollout jsonl.
 // ---------------------------------------------------------------------------
 
-/** Locate the session rollout file for a codex session id (sessions/YYYY/MM/DD/). */
-function findRolloutFile(sid) {
-  const root = join(CODEX_HOME, 'sessions')
-  const queue = [root]
-  while (queue.length) {
-    const dir = queue.pop()
-    let entries
-    try {
-      entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      continue
+const SESSION_ID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/
+
+/** Read only the session header; never extract images from another task's rollout. */
+async function ownsRollout(file, cwd, sid) {
+  const stream = createReadStream(file, { encoding: 'utf8' })
+  const lines = createInterface({ input: stream, crlfDelay: Infinity })
+  try {
+    for await (const line of lines) {
+      const record = JSON.parse(line)
+      return record.type === 'session_meta' && record.payload?.cwd === cwd && record.payload?.id === sid
     }
-    for (const e of entries) {
-      const p = join(dir, e.name)
-      if (e.isDirectory()) queue.push(p)
-      else if (e.name.startsWith('rollout-') && e.name.includes(sid) && e.name.endsWith('.jsonl')) {
-        return p
-      }
-    }
+  } catch {
+    // A rollout can disappear or still have an incomplete header during a scan.
+  } finally {
+    lines.close()
+    stream.destroy()
   }
-  return null
+  return false
 }
 
 /**
- * Fallback rollout discovery when the session id never reached stdout/stderr:
- * the newest rollout file created after `sinceMs` (single-flight means only
- * our codex task is running). Returns { file, sid } (sid from the filename,
- * for scratch-dir cleanup) or null.
+ * Locate only rollouts belonging to this run's unique, canonical temporary cwd.
+ * A session banner is a search hint, not proof of ownership: desktop Codex and
+ * other CLI processes can write newer rollouts into the same sessions tree.
  */
-function findRecentRollout(sinceMs) {
-  const root = join(CODEX_HOME, 'sessions')
-  let best = null
-  const queue = [root]
+async function findOwnedRollout(cwd, sinceMs, preferredSid = null) {
+  const queue = [join(CODEX_HOME, 'sessions')]
+  const candidates = []
   while (queue.length) {
     const dir = queue.pop()
     let entries
@@ -451,26 +472,26 @@ function findRecentRollout(sinceMs) {
     } catch {
       continue
     }
-    for (const e of entries) {
-      const p = join(dir, e.name)
-      if (e.isDirectory()) {
-        queue.push(p)
-        continue
-      }
-      if (!e.name.startsWith('rollout-') || !e.name.endsWith('.jsonl')) continue
-      const m = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/.exec(e.name)
-      if (!m) continue
-      try {
-        const st = statSync(p)
-        if (st.mtimeMs >= sinceMs && (!best || st.mtimeMs > best.mtimeMs)) {
-          best = { file: p, sid: m[1], mtimeMs: st.mtimeMs }
+    for (const entry of entries) {
+      const file = join(dir, entry.name)
+      if (entry.isDirectory()) queue.push(file)
+      else if (entry.name.startsWith('rollout-')) {
+        const sid = SESSION_ID_RE.exec(entry.name)?.[1]
+        if (sid) {
+          try {
+            if (statSync(file).mtimeMs >= sinceMs) candidates.push({ file, sid })
+          } catch {
+            // Another process may remove a rollout during the scan.
+          }
         }
-      } catch {
-        /* vanished mid-scan */
       }
     }
   }
-  return best
+  candidates.sort((a, b) => Number(b.sid === preferredSid) - Number(a.sid === preferredSid))
+  for (const candidate of candidates) {
+    if (await ownsRollout(candidate.file, cwd, candidate.sid)) return candidate
+  }
+  return null
 }
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -480,6 +501,8 @@ const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
  * Record shape differs by codex version:
  * - v0.140: { type: 'response_item', payload: { type: 'image_generation_call', result } }
  * - v0.144+: { type: 'event_msg', payload: { type: 'image_generation_end', status, result, saved_path } }
+ * - v0.153 paginated: event_msg/item_completed → item { type: 'Extension',
+ *   kind: 'image_gen.generation', status, result, savedPath }
  * The inline base64 is the only source of truth (saved_path is deliberately
  * ignored). Returns { buffer, failed? } — failed carries the last non-completed
  * status when no image was produced.
@@ -488,16 +511,19 @@ function extractRolloutImage(file) {
   let image = null
   let failed = null
   for (const line of readFileSync(file, 'utf8').split('\n')) {
-    if (!line || line.indexOf('image_generation') < 0) continue
+    if (!line || (!line.includes('image_generation') && !line.includes('image_gen.generation'))) continue
     let rec
     try {
       rec = JSON.parse(line)
     } catch {
       continue
     }
-    const p = rec?.payload
+    const event = rec?.payload
+    const paginated = rec?.type === 'event_msg' && event?.type === 'item_completed' &&
+      event.item?.type === 'Extension' && event.item.kind === 'image_gen.generation'
+    const p = paginated ? event.item : event
     if (!p || typeof p !== 'object') continue
-    if (p.type === 'image_generation_end' || p.type === 'image_generation_call') {
+    if (paginated || p.type === 'image_generation_end' || p.type === 'image_generation_call') {
       if (typeof p.result === 'string' && p.result.length > 100 && (!p.status || p.status === 'completed')) {
         const buf = Buffer.from(p.result, 'base64')
         if (buf.length > 8 && buf.subarray(0, 8).equals(PNG_MAGIC)) image = buf
@@ -530,23 +556,22 @@ async function handleRender(req, res) {
   const prompt = typeof parsed.body.prompt === 'string' ? parsed.body.prompt.trim() : ''
   if (!prompt) return send(res, { ok: false, code: 'error', error: 'prompt is required' }, 400)
   const aspect = Object.hasOwn(ASPECT_WORDS, parsed.body.aspect) ? parsed.body.aspect : '3:2'
-  if (!(await preflight(res))) return
-
-  const current = { kind: 'render', startedAt: Date.now(), kill: null }
-  codexCurrent = current
+  const current = await preflight('render', res)
+  if (!current) return
   const started = current.startedAt
   let dir = null
-  let rolloutFile = null
-  let sid = null
+  let rollout = null
   res.on('close', () => {
     if (!res.writableEnded && codexCurrent === current) current.kill?.()
   })
   try {
-    dir = mkdtempSync(join(tmpdir(), 'home3d-ai-'))
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'home3d-ai-')))
     const viewFile = join(dir, `view.${parsed.images[0].ext}`)
     writeFileSync(viewFile, parsed.images[0].data)
     const args = [
       'exec',
+      '--model', CODEX_MODEL,
+      '-c', `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
       '--skip-git-repo-check',
       '--color',
       'never',
@@ -568,7 +593,7 @@ async function handleRender(req, res) {
     }
     // NO --ephemeral: the session rollout must persist for image extraction
     // '--' ends option parsing: -i is variadic and would otherwise swallow the prompt
-    args.push('--', renderPrompt(ASPECT_WORDS[aspect], prompt, parsed.images.length - 1))
+    args.push('--', renderPrompt(ASPECT_WORDS[aspect], prompt, Math.min(parsed.images.length - 1, 5)))
     const rp = runCodex(args, RENDER_TIMEOUT_MS)
     current.kill = rp.kill
     const r = await rp
@@ -582,21 +607,12 @@ async function handleRender(req, res) {
       const tail = (r.stderr || '').trim().slice(-300) || r.error || `codex exited with code ${r.code}`
       return send(res, { ok: false, code: 'error', error: tail })
     }
-    sid = /session id: ([0-9a-f-]+)/.exec(r.stdout)?.[1] ?? /session id: ([0-9a-f-]+)/.exec(r.stderr)?.[1] ?? null
-    rolloutFile = sid ? findRolloutFile(sid) : null
-    if (!rolloutFile) {
-      // the session banner doesn't always reach the piped streams — fall back
-      // to the newest rollout created after this task started
-      const recent = findRecentRollout(started - 5_000)
-      if (recent) {
-        rolloutFile = recent.file
-        sid = recent.sid
-      }
-    }
-    if (!rolloutFile) {
+    const sid = /session id: ([0-9a-f-]+)/.exec(r.stdout)?.[1] ?? /session id: ([0-9a-f-]+)/.exec(r.stderr)?.[1]
+    rollout = await findOwnedRollout(dir, started - 5_000, sid)
+    if (!rollout) {
       return send(res, { ok: false, code: 'error', error: 'codex session rollout not found' })
     }
-    const { buffer, failed } = extractRolloutImage(rolloutFile)
+    const { buffer, failed } = extractRolloutImage(rollout.file)
     if (!buffer) {
       return send(res, {
         ok: false,
@@ -609,22 +625,23 @@ async function handleRender(req, res) {
       image: `data:image/png;base64,${buffer.toString('base64')}`,
       durationMs: Date.now() - started,
       model: MODEL_LABEL,
+      codexModel: CODEX_MODEL,
       aspect,
     })
   } finally {
-    if (codexCurrent === current) codexCurrent = null
-    if (dir) rmSync(dir, { recursive: true, force: true })
-    // restore --ephemeral-like cleanliness: drop the session rollout and the
-    // generated_images/<sid> scratch dir created by this run
+    // Also clean owned artifacts after cancellation/failure. An unverified banner
+    // must never authorize deleting generated_images/<sid> or another rollout.
     try {
-      if (rolloutFile) rmSync(rolloutFile, { force: true })
+      if (dir) rollout ??= await findOwnedRollout(dir, started - 5_000)
+      if (rollout) {
+        rmSync(rollout.file, { force: true })
+        rmSync(join(CODEX_HOME, 'generated_images', rollout.sid), { recursive: true, force: true })
+      }
     } catch {
-      /* best effort */
-    }
-    try {
-      if (sid) rmSync(join(CODEX_HOME, 'generated_images', sid), { recursive: true, force: true })
-    } catch {
-      /* best effort */
+      // Cleanup is best effort; always release the slot below.
+    } finally {
+      if (codexCurrent === current) codexCurrent = null
+      if (dir) rmSync(dir, { recursive: true, force: true })
     }
   }
 }
@@ -637,6 +654,7 @@ async function handleStatus(res) {
     busySince: codexCurrent?.startedAt ?? null,
     busyKind: codexCurrent?.kind ?? null,
     model: MODEL_LABEL,
+    codexModel: CODEX_MODEL,
   })
 }
 
@@ -647,16 +665,18 @@ export function aiApi() {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = (req.url || '').split('?')[0]
-        if (url === '/api/ai/status' && req.method === 'GET') return void handleStatus(res)
-        if (url === '/api/ai/understand' && req.method === 'POST') return void handleUnderstand(req, res)
-        if (url === '/api/ai/understand/cancel' && req.method === 'POST') {
+        let task
+        if (url === '/api/ai/status' && req.method === 'GET') task = handleStatus(res)
+        else if (url === '/api/ai/understand' && req.method === 'POST') task = handleUnderstand(req, res)
+        else if (url === '/api/ai/render' && req.method === 'POST') task = handleRender(req, res)
+        else if (url === '/api/ai/understand/cancel' && req.method === 'POST') {
           return void handleCancel('understand', res)
-        }
-        if (url === '/api/ai/render' && req.method === 'POST') return void handleRender(req, res)
-        if (url === '/api/ai/render/cancel' && req.method === 'POST') {
+        } else if (url === '/api/ai/render/cancel' && req.method === 'POST') {
           return void handleCancel('render', res)
-        }
-        next()
+        } else return next()
+        task.catch((error) => {
+          if (!res.destroyed && !res.headersSent) send(res, { ok: false, code: 'error', error: error.message })
+        })
       })
     },
   }

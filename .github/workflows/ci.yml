@@ -1,4 +1,4 @@
-# CI: build + engine smoke + public leak scan on every push/PR.
+# CI: build, offline regressions, companion tests and public leak scan.
 name: ci
 
 on:
@@ -16,7 +16,6 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
-      - run: npm run smoke
+      - run: npm run check
       - run: npm run companion:test
       - run: npm run scan:public

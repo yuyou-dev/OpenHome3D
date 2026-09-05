@@ -1,7 +1,7 @@
 /**
  * Multi-room home model: rectangular rooms placed in a shared "home"
  * coordinate system, plus wall openings (doors/windows). Walls themselves
- * are never stored — they are derived from room adjacency (see P2).
+ * are never stored — they are derived from room adjacency (see gen/walls.ts).
  *
  * Conventions:
  * - Sides: n = -z (north), s = +z (south), e = +x (east), w = -x (west).
@@ -168,26 +168,63 @@ export function openingsOn(room: RoomDef, side: Side, openings: Opening[]): Open
   return openings.filter((o) => o.a === room.id && o.side === side)
 }
 
-/**
- * Validate an opening against the home: the room must exist, the opening
- * must fit its wall span, `b` must be 'exterior' or a real room, and
- * windows require an exterior wall (no shared span with another room).
- */
-export function validateOpening(home: HomeDef, o: Opening): boolean {
+/** Legal intervals on the actual wall: a shared span, or exposed exterior segments. */
+export function openingIntervals(home: HomeDef, o: Pick<Opening, 'a' | 'b' | 'side' | 'kind'>): [number, number][] {
   const room = roomById(home, o.a)
-  if (!room) return false
-  const span = sideSpan(room, o.side).length
-  if (!(o.width > 0) || o.width > span + EPS) return false
-  if (o.offset - o.width / 2 < -EPS || o.offset + o.width / 2 > span + EPS) return false
-  if (o.b !== 'exterior' && !roomById(home, o.b)) return false
-  if (o.kind === 'window') {
-    for (const r of home.rooms) {
-      if (r.id === room.id) continue
-      const sh = sharedSpan(room, r)
-      if (sh && sh.side === o.side) return false
-    }
+  if (!room) return []
+  if (o.b !== 'exterior') {
+    const neighbor = roomById(home, o.b)
+    const shared = neighbor && sharedSpan(room, neighbor)
+    return o.kind !== 'window' && shared?.side === o.side ? [[shared.from, shared.to]] : []
   }
-  return true
+  let spans: [number, number][] = [[0, sideSpan(room, o.side).length]]
+  for (const other of home.rooms) {
+    if (other.id === room.id) continue
+    const shared = sharedSpan(room, other)
+    if (!shared || shared.side !== o.side) continue
+    spans = spans.flatMap(([lo, hi]) => {
+      if (shared.to <= lo || shared.from >= hi) return [[lo, hi]]
+      const remaining: [number, number][] = []
+      if (shared.from > lo) remaining.push([lo, shared.from])
+      if (shared.to < hi) remaining.push([shared.to, hi])
+      return remaining
+    })
+  }
+  return spans
+}
+
+/** Openings must fit one contiguous wall segment connecting their declared rooms. */
+export function validateOpening(home: HomeDef, o: Opening): boolean {
+  if (!Number.isFinite(o.width) || !Number.isFinite(o.offset) || o.width <= 0) return false
+  return openingIntervals(home, o).some(([lo, hi]) =>
+    o.offset - o.width / 2 >= lo - EPS && o.offset + o.width / 2 <= hi + EPS)
+}
+
+/** Move/resize into the nearest legal segment, or remove when the connection is gone. */
+export function fitOpening(home: HomeDef, o: Opening): Opening | null {
+  if (!Number.isFinite(o.width) || !Number.isFinite(o.offset)) return null
+  const candidates = openingIntervals(home, o).filter(([lo, hi]) => hi - lo >= 0.3 - EPS)
+    .map(([lo, hi]) => {
+      const width = Math.min(Math.max(0.3, o.width), hi - lo)
+      const offset = Math.max(lo + width / 2, Math.min(hi - width / 2, o.offset))
+      return { ...o, width, offset }
+    })
+  candidates.sort((a, b) => Math.abs(a.offset - o.offset) - Math.abs(b.offset - o.offset))
+  const next = candidates[0]
+  if (!next) return null
+  return next.width === o.width && next.offset === o.offset ? o : next
+}
+
+/** Reconcile both owners and neighbors after any change to room topology. */
+export function reconcileOpenings(home: HomeDef): { home: HomeDef; removed: number; adjusted: number } {
+  let removed = 0, adjusted = 0
+  const openings = home.openings.flatMap((o) => {
+    const next = fitOpening(home, o)
+    if (!next) { removed++; return [] }
+    if (next !== o) adjusted++
+    return [next]
+  })
+  return { home: removed || adjusted ? { ...home, openings } : home, removed, adjusted }
 }
 
 /** A doorway interval on one wall of a room, wall-local meters (header conventions). */
@@ -243,7 +280,7 @@ export function doorZonesFor(room: RoomDef, home: HomeDef): DoorZone[] {
  * Materialize the implicit shell openings of the legacy single-room renderer
  * (pre-v2 src/three/Room.tsx, since removed) as data: one door centered on the north wall toward
  * the east end, plus windows evenly spread along the west wall. Shared by
- * the initial state, newRoom and room-type changes so a fresh room renders
+ * the initial state and newRoom so a fresh room renders
  * exactly like the old hard-coded shell.
  */
 export function materializeShell(room: RoomDef, spec: RoomTypeSpec): Opening[] {

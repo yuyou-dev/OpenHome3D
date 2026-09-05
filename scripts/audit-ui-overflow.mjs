@@ -1,4 +1,4 @@
-// UI overflow audit: drive the app through 10 UI states at 2 viewports in
+// UI overflow audit: drive the app through the UI states below at 2 viewports in
 // headless system Chrome and report every visible text clipping / overflow bug.
 //
 // Checks (per element inside .sidebar/.topbar/.statusbar/.sel-pill/.status-info/[data-modal]/.toast):
@@ -12,16 +12,10 @@
 //
 // Exit code 1 when any finding, 0 when clean (regression gate).
 // Env: APP_URL (default http://127.0.0.1:<.port>/), SHOT_DIR (per-state screenshots).
-import puppeteer from 'puppeteer-core'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { appUrl, launchBrowser, preparePage } from './lib/browser.mjs'
 
-let port = '59683'
-try {
-  port = readFileSync(new URL('../.port', import.meta.url), 'utf8').trim()
-} catch {
-  /* fall back to default */
-}
-const url = process.env.APP_URL || `http://127.0.0.1:${port}/`
+const url = appUrl()
 const SHOT_DIR = process.env.SHOT_DIR || ''
 if (SHOT_DIR) mkdirSync(SHOT_DIR, { recursive: true })
 
@@ -29,8 +23,6 @@ const VIEWPORTS = [
   { label: '1600x1000', width: 1600, height: 1000 },
   { label: '1280x800', width: 1280, height: 800 },
 ]
-
-const LONG_ROOM_NAME = 'Sitting Room Great Hall'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -173,7 +165,7 @@ async function evalStore(page, fn) {
 
 async function closeAnyModal(page) {
   await page.evaluate(() => {
-    // model browser / upload modal close button
+    // model browser / upload modal close button, then AI panel close button
     const btns = [...document.querySelectorAll('[data-modal] .modal-head .icon-btn')]
     btns[btns.length - 1]?.click()
     document.querySelector('.display-backdrop')?.click()
@@ -191,7 +183,8 @@ const STATES = [
     },
   },
   {
-    // home tab: room list + openings rows (3 wrap-prone mini buttons per side)
+    // home tab: room list, openings rows (3 wrap-prone mini buttons per side),
+    // template/import rows — the import row's dynamic states are stubbed below
     id: 'S1b-home-tab',
     async setup(page) {
       await evalStore(page, () => {
@@ -246,7 +239,7 @@ const STATES = [
     },
   },
   {
-    id: 'S1d-home-tab-restore',
+    id: 'S1d-import-restore',
     async setup(page) {
       await page.evaluate(() => {
         if (window.__origFetch) window.fetch = window.__origFetch
@@ -394,72 +387,63 @@ const STATES = [
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
-const browser = await puppeteer.launch({
-  executablePath:
-    process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  headless: 'new',
-  args: ['--headless=new', '--hide-scrollbars', '--mute-audio', '--use-angle=metal'],
-})
+const browser = await launchBrowser()
+try {
+  const allFindings = []
+  let n = 0
 
-const allFindings = []
-let n = 0
+  for (const vp of VIEWPORTS) {
+    const page = await browser.newPage()
+    await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 })
+    const errors = await preparePage(page)
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 })
+    await page.waitForFunction(() => !!window.__store, { timeout: 15000 })
+    await sleep(2500)
 
-for (const vp of VIEWPORTS) {
-  const page = await browser.newPage()
-  await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 })
-  const errors = []
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 200))
-  })
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + String(e).slice(0, 200)))
-  page.on('response', (r) => {
-    if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`)
-  })
-  await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 })
-  await page.waitForFunction(() => !!window.__store, { timeout: 15000 })
-  await sleep(2500)
-
-  for (const st of STATES) {
-    try {
-      await st.setup(page)
-    } catch (e) {
-      allFindings.push({ viewport: vp.label, state: st.id, kind: 'SETUP-FAIL', path: '', text: '', detail: String(e).slice(0, 160) })
-      continue
+    for (const st of STATES) {
+      try {
+        await st.setup(page)
+      } catch (e) {
+        allFindings.push({ viewport: vp.label, state: st.id, kind: 'SETUP-FAIL', path: '', text: '', detail: String(e).slice(0, 160) })
+        continue
+      }
+      const found = await page.evaluate(auditInPage)
+      for (const f of found) {
+        n += 1
+        allFindings.push({ viewport: vp.label, state: st.id, ...f })
+        console.log(
+          `${String(n).padStart(3)}. [${vp.label} ${st.id}] ${f.kind} ${f.path} — "${f.text}" ${f.detail}`,
+        )
+      }
+      if (SHOT_DIR) {
+        await page.screenshot({ path: `${SHOT_DIR}/${vp.label}-${st.id}.png` })
+      }
     }
-    const found = await page.evaluate(auditInPage)
-    for (const f of found) {
-      n += 1
-      allFindings.push({ viewport: vp.label, state: st.id, ...f })
-      console.log(
-        `${String(n).padStart(3)}. [${vp.label} ${st.id}] ${f.kind} ${f.path} — "${f.text}" ${f.detail}`,
-      )
-    }
-    if (SHOT_DIR) {
-      await page.screenshot({ path: `${SHOT_DIR}/${vp.label}-${st.id}.png` })
-    }
-  }
-  if (errors.length) {
-    console.log(`PAGE ERRORS [${vp.label}]:`)
-    errors.slice(0, 8).forEach((e) => console.log('   -', e))
-    errors.forEach((detail) => {
-      const kind = detail.startsWith('PAGEERROR:')
-        ? 'PAGEERROR'
-        : detail.startsWith('HTTP ')
-          ? 'HTTP_ERROR'
-          : 'CONSOLE_ERROR'
-      allFindings.push({
-        viewport: vp.label,
-        state: 'runtime',
-        kind,
-        path: '',
-        text: '',
-        detail,
+    if (errors.length) {
+      console.log(`PAGE ERRORS [${vp.label}]:`)
+      errors.slice(0, 8).forEach((e) => console.log('   -', e))
+      errors.forEach((detail) => {
+        const kind = detail.startsWith('PAGEERROR:')
+          ? 'PAGEERROR'
+          : detail.startsWith('HTTP ')
+            ? 'HTTP_ERROR'
+            : 'CONSOLE_ERROR'
+        allFindings.push({
+          viewport: vp.label,
+          state: 'runtime',
+          kind,
+          path: '',
+          text: '',
+          detail,
+        })
       })
-    })
+    }
+    await page.close()
   }
-  await page.close()
-}
 
-await browser.close()
-console.log(allFindings.length === 0 ? '\nAUDIT CLEAN — no overflow findings.' : `\n${allFindings.length} finding(s).`)
-process.exit(allFindings.length === 0 ? 0 : 1)
+  console.log(allFindings.length === 0 ? '\nAUDIT CLEAN — no overflow findings.' : `\n${allFindings.length} finding(s).`)
+  process.exitCode = allFindings.length === 0 ? 0 : 1
+} finally {
+  await browser.close()
+}
+process.exit(process.exitCode ?? 0)

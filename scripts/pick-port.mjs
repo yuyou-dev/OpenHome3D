@@ -10,14 +10,13 @@ const PORT_FILE = join(process.cwd(), '.port')
 
 /**
  * Returns a stable random high port for the dev server. The port is generated
- * once, cached in `.port`, and reused on subsequent runs. Combined with
- * `strictPort: false` in vite.config.ts, vite will bump to the next free port
- * if this one happens to be busy.
+ * once, cached in `.port`, and reused on subsequent runs. Vite uses strictPort
+ * so tests reading this cache always target the same server. If occupied, stop that server or remove `.port` to pick a new port.
  */
 export function pickPort() {
   try {
     if (existsSync(PORT_FILE)) {
-      const port = Number.parseInt(readFileSync(PORT_FILE, 'utf8').trim(), 10)
+      const port = Number(readFileSync(PORT_FILE, 'utf8').trim())
       if (Number.isInteger(port) && port >= MIN_PORT && port <= MAX_PORT) {
         return port
       }

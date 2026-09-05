@@ -7,6 +7,7 @@ import { planJsonToHome, type PlanJson } from '../gen/importPlan'
 import { aiStatus, cancelAiTask, downscaleImageToPng, understandPlan } from '../lib/ai'
 import {
   roomById,
+  openingIntervals,
   sharedSpan,
   sideSpan,
   type HomeDef,
@@ -97,7 +98,7 @@ function TemplateRow() {
 /**
  * Floor-plan image import: pick a png/jpeg → downscale → POST /api/ai/understand
  * (codex, ~40–70 s, cancellable) → lightweight confirm row → planJsonToHome →
- * store.importHome + setPlanImage (corner minimap source, see PlanMinimap).
+ * store.importHome(home, imageUrl) (corner minimap source, see PlanMinimap).
  * Recognition failures surface as code-specific toasts; cancelling is silent.
  * When the server reports 'busy' (single-flight slot held by another/stale
  * task), the image queues: status polls every 2 s auto-start it once the slot
@@ -111,10 +112,11 @@ function TemplateRow() {
  */
 function ImportRow() {
   const importHome = useStore((s) => s.importHome)
-  const setPlanImage = useStore((s) => s.setPlanImage)
   const pushToast = useUI((s) => s.pushToast)
   const fileRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const generationRef = useRef(0) // invalidates preparation, recognition and queued status replies
+  const blockingKindRef = useRef<'understand' | 'render'>('understand')
   const pollRef = useRef<number | null>(null)
   const imgRef = useRef<string | null>(null) // image waiting for a free slot
   const startRef = useRef(0) // running: our start; queued: other task's busySince
@@ -148,6 +150,7 @@ function ImportRow() {
   // abort an in-flight recognition + stop queue polling if the tab unmounts
   useEffect(
     () => () => {
+      generationRef.current += 1
       abortRef.current?.abort()
       stopPolling()
     },
@@ -155,6 +158,9 @@ function ImportRow() {
   )
 
   const reset = () => {
+    generationRef.current += 1
+    abortRef.current?.abort()
+    abortRef.current = null
     stopPolling()
     imgRef.current = null
     setPhase('idle')
@@ -164,12 +170,14 @@ function ImportRow() {
   }
 
   const recognize = async (dataUrl: string) => {
+    const generation = generationRef.current
     const ctrl = new AbortController()
     abortRef.current = ctrl
     startRef.current = Date.now()
     setElapsed(0)
     setPhase('running')
     const res = await understandPlan(dataUrl, ctrl.signal)
+    if (generation !== generationRef.current) return
     abortRef.current = null
     if (!res.ok) {
       if (res.error === 'cancelled') {
@@ -180,12 +188,18 @@ function ImportRow() {
         // single-flight slot held by another (possibly stale) task → queue:
         // poll status, auto-start once it frees
         startRef.current = res.startedAt ?? Date.now()
+        blockingKindRef.current = res.kind ?? 'understand'
         setPhase('queued')
         stopPolling()
+        let polling = false
         pollRef.current = window.setInterval(() => {
+          if (polling) return
+          polling = true
           void aiStatus().then((st) => {
-            if (!st) return
+            polling = false
+            if (generation !== generationRef.current || !st) return
             if (st.busy) {
+              if (st.busyKind) blockingKindRef.current = st.busyKind
               if (st.busySince) startRef.current = st.busySince
               return
             }
@@ -215,19 +229,15 @@ function ImportRow() {
   }
 
   const onFile = async (file: File | undefined) => {
-    if (!file || phase !== 'idle') return
-    // the endpoint only exists on the dev server — on the static demo the
-    // probe fails and we point the user at the local flow instead
-    const st = await aiStatus()
-    if (!st || !st.codex?.available) {
-      pushToast(
-        '本机功能:需在本地 npm run dev 且 codex 已登录(codex login) Local-only: run the dev server with codex logged in',
-      )
-      if (fileRef.current) fileRef.current.value = ''
-      return
-    }
+    if (!file || phase !== 'idle' || import.meta.env.PROD) return
+    const generation = ++generationRef.current
+    startRef.current = Date.now()
+    setElapsed(0)
+    setPhase('running')
     const dataUrl = await downscaleImageToPng(file, 1600)
+    if (generation !== generationRef.current) return
     if (!dataUrl) {
+      reset()
       pushToast('无法读取图片 Cannot read image')
       if (fileRef.current) fileRef.current.value = ''
       return
@@ -237,7 +247,7 @@ function ImportRow() {
   }
 
   const killPrevious = () => {
-    void cancelAiTask('understand').then((killed) =>
+    void cancelAiTask(blockingKindRef.current).then((killed) =>
       pushToast(killed ? '已中止上一任务 Previous task killed' : '上一任务已结束 Nothing to kill'),
     )
   }
@@ -246,8 +256,7 @@ function ImportRow() {
     if (!pending) return
     try {
       const { home, report } = planJsonToHome(pending.plan)
-      setPlanImage(pending.dataUrl)
-      importHome(home)
+      importHome(home, pending.dataUrl)
       const dropped = report.roomsDropped + report.doorsDropped + report.windowsDropped
       pushToast(
         `已导入 ${report.roomsApplied} 房间/${report.doorsApplied} 门/${report.windowsApplied} 窗 Imported` +
@@ -278,6 +287,7 @@ function ImportRow() {
         style={{ display: 'none' }}
         onChange={(e) => void onFile(e.target.files?.[0])}
       />
+      {import.meta.env.PROD && <p className="caption">本机运行可用：npm run dev + codex login<br />AI import is available in the local dev server.</p>}
       {pending ? (
         // two lines: the summary gets the full row width (no button squeeze),
         // actions sit on their own row like 添加房间/删除房间 below
@@ -311,7 +321,7 @@ function ImportRow() {
           >
             识别中 {elapsed}s Recognizing…
           </GhostButton>
-          <GhostButton style={{ ...miniBtnStyle, flexShrink: 0 }} onClick={() => abortRef.current?.abort()}>
+          <GhostButton style={{ ...miniBtnStyle, flexShrink: 0 }} onClick={reset}>
             取消 Cancel
           </GhostButton>
         </div>
@@ -320,7 +330,7 @@ function ImportRow() {
           <GhostButton
             style={{ ...growBtnStyle, flex: '1 1 100px' }}
             disabled
-            title="等待上一识别任务结束,结束后会自动开始 Starts automatically when the previous task finishes"
+            title="等待上一 AI 任务结束,结束后会自动开始 Starts automatically when the previous task finishes"
           >
             排队中 {elapsed}s Queued…
           </GhostButton>
@@ -337,7 +347,7 @@ function ImportRow() {
         </div>
       ) : (
         <div className="btn-row">
-          <GhostButton style={miniBtnStyle} onClick={() => fileRef.current?.click()}>
+          <GhostButton style={miniBtnStyle} disabled={import.meta.env.PROD} onClick={() => fileRef.current?.click()}>
             导入户型图 Import plan
           </GhostButton>
         </div>
@@ -348,6 +358,7 @@ function ImportRow() {
 
 /** One opening owned by the active room: kind select / offset slider / width / delete. */
 function OpeningCard({ room, opening }: { room: RoomDef; opening: Opening }) {
+  const home = useStore((s) => s.home)
   const updateOpening = useStore((s) => s.updateOpening)
   const removeOpening = useStore((s) => s.removeOpening)
   const selected = useStore((s) => s.selectedOpeningId === opening.id)
@@ -355,7 +366,9 @@ function OpeningCard({ room, opening }: { room: RoomDef; opening: Opening }) {
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' })
   }, [selected])
-  const span = sideSpan(room, opening.side).length
+  const intervals = openingIntervals(home, opening)
+  const [from, to] = intervals.find(([lo, hi]) => opening.offset >= lo && opening.offset <= hi) ?? [0, sideSpan(room, opening.side).length]
+  const span = to - from
   const canGap = opening.kind === 'open'
   return (
     <div ref={ref} style={selected ? { ...cardStyle, outline: '2px solid var(--select)' } : cardStyle}>
@@ -397,8 +410,8 @@ function OpeningCard({ room, opening }: { room: RoomDef; opening: Opening }) {
       <Slider
         label="位置 Offset"
         value={opening.offset}
-        min={opening.width / 2}
-        max={Math.max(opening.width / 2, span - opening.width / 2)}
+        min={from + opening.width / 2}
+        max={Math.max(from + opening.width / 2, to - opening.width / 2)}
         step={0.05}
         display={`${opening.offset.toFixed(2)} m`}
         onChange={(v) => updateOpening(opening.id, { offset: v })}
@@ -406,8 +419,8 @@ function OpeningCard({ room, opening }: { room: RoomDef; opening: Opening }) {
       <NumberInput
         label="宽度 Width"
         value={opening.width}
-        min={0.5}
-        max={opening.fullHeight ? span : 2.4}
+        min={0.3}
+        max={opening.fullHeight ? span : Math.min(span, 2.4)}
         step={0.05}
         unit="m"
         onCommit={(v) => updateOpening(opening.id, { width: v })}
@@ -456,7 +469,6 @@ export default function HomeTab() {
   const addOpening = useStore((s) => s.addOpening)
   const wallHeight = useStore((s) => s.wallHeight)
   const setStructure = useStore((s) => s.setStructure)
-  const pushToast = useUI((s) => s.pushToast)
   const [newType, setNewType] = useState('bedroom')
 
   const room = roomById(home, activeRoomId) ?? home.rooms[0]
@@ -466,10 +478,6 @@ export default function HomeTab() {
   const addOnSide = (side: Side, kind: 'door' | 'window' | 'gap') => {
     if (!room) return
     const neighbor = home.rooms.find((r) => r.id !== room.id && sharedSpan(room, r)?.side === side)
-    if (kind === 'window' && neighbor) {
-      pushToast('内墙不能开窗 Windows need an exterior wall')
-      return
-    }
     if (kind === 'gap') {
       // interior side: 打通 — full-height opening across the shared interval
       // (no wall there). exterior side: 阳台开口 — the wall across the span

@@ -1,7 +1,7 @@
 {
   "name": "openhome3d",
   "version": "0.2.0",
-  "description": "Open-source cartoon-style (cel-shaded) single-room home designer with a Neo-Brutalism UI \u2014 procedural seed-based layouts, 337 CC0 furniture models, model upload, and playful editing.",
+  "description": "Open-source cartoon-style (cel-shaded) multi-room home designer with a Neo-Brutalism UI — procedural seed-based layouts, 337 CC0 furniture models, model upload, and playful editing.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -20,12 +20,12 @@
     "procedural-generation"
   ],
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "build:pages": "tsc && vite build --base=/OpenHome3D/",
+    "build": "tsc && tsc -p tsconfig.node.json && vite build",
+    "build:pages": "tsc && tsc -p tsconfig.node.json && vite build --base=/OpenHome3D/",
     "preview": "vite preview",
     "smoke": "tsx scripts/smoke-gen.ts",
     "smoke:ui": "node scripts/smoke-ui.mjs",
@@ -33,7 +33,16 @@
     "assets": "node scripts/fetch-assets.mjs && node scripts/build-manifest.mjs",
     "doctor": "node scripts/doctor.mjs",
     "scan:public": "node scripts/public-scan.mjs",
-    "companion:test": "node --test plugins/openhome3d-companion/tests/*.test.mjs"
+    "companion:test": "node --test plugins/openhome3d-companion/tests/*.test.mjs",
+    "smoke:editor": "node scripts/test-editor-state.mjs && tsx scripts/test-model-search.ts && tsx scripts/test-camera-fit.ts && node scripts/test-runtime.mjs && node scripts/test-editing-invariants.mjs",
+    "smoke:interactions": "node scripts/test-interactions.mjs",
+    "smoke:ai": "node --test scripts/test-ai-api.mjs",
+    "check": "npm run build && npm run smoke && npm run smoke:editor && npm run smoke:ai",
+    "smoke:ai-flow": "node scripts/test-ai-flow.mjs",
+    "smoke:project": "node scripts/test-project-package.mjs",
+    "check:ui": "npm run smoke:ui && npm run smoke:interactions && npm run smoke:project && npm run smoke:ai-flow && npm run audit:ui",
+    "smoke:ai:live": "node scripts/test-ai-live.mjs",
+    "smoke:pages": "npm run build:pages && node scripts/test-pages.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",

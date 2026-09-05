@@ -1,10 +1,11 @@
-import { useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore, type PlanTab } from '../state/store'
 import { ROOM_TYPES } from '../gen/roomTypes'
 import { useUI } from './uiStore'
 import SelectionPanel from './SelectionPanel'
 import HomeTab from './HomeTab'
-import { GhostButton, NumberInput, Section, SegmentedTabs, Slider } from './components'
+import ProjectFiles from './ProjectFiles'
+import { GhostButton, NumberInput, PrimaryButton, Section, SegmentedTabs, Slider } from './components'
 
 const PLAN_TABS: { value: PlanTab; label: string }[] = [
   { value: 'home', label: '整宅 Home' },
@@ -18,6 +19,7 @@ function RoomTab() {
   const setRoomRect = useStore((s) => s.setRoomRect)
   const setPlanTab = useStore((s) => s.setPlanTab)
   const newRoom = useStore((s) => s.newRoom)
+  const [confirmNew, setConfirmNew] = useState(false)
   const reshuffleFurniture = useStore((s) => s.reshuffleFurniture)
   const wallHeight = useStore((s) => s.wallHeight)
   const setRoomPartition = useStore((s) => s.setRoomPartition)
@@ -91,9 +93,18 @@ function RoomTab() {
         onCommit={(v) => setRoomPartition(v)}
       />
       <div className="btn-row">
-        <GhostButton onClick={() => newRoom()}>新建房间 New room</GhostButton>
+        <GhostButton onClick={() => setConfirmNew(true)}>新建方案 New plan</GhostButton>
         <GhostButton onClick={() => reshuffleFurniture()}>换一换 Shuffle</GhostButton>
       </div>
+      {confirmNew && (
+        <div>
+          <p className="caption">将替换整宅和家具，可撤销。<br />Replace the entire plan and furniture. Undo is available.</p>
+          <div className="btn-row">
+            <PrimaryButton onClick={() => { newRoom(); setConfirmNew(false) }}>确认覆盖 Confirm replace</PrimaryButton>
+            <GhostButton onClick={() => setConfirmNew(false)}>取消 Cancel</GhostButton>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -117,26 +128,13 @@ export default function Sidebar() {
   const extras = useStore((s) => s.extras)
   const setExtras = useStore((s) => s.setExtras)
 
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  const onExport = () => {
-    const s = useStore.getState()
-    const blob = new Blob([s.exportProject()], { type: 'application/json' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `openhome3d-${s.seed.toLowerCase()}.json`
-    a.click()
-    URL.revokeObjectURL(a.href)
-    pushToast('已导出项目文件 Exported project file')
-  }
-
-  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    const err = useStore.getState().importProject(await file.text())
-    pushToast(err ?? '项目已导入 Project imported')
-  }
+  const structureNotice = useStore(s => s.structureNotice)
+  const dismissStructureNotice = useStore(s => s.dismissStructureNotice)
+  useEffect(() => {
+    if (!structureNotice) return
+    pushToast(structureNotice)
+    dismissStructureNotice()
+  }, [structureNotice, pushToast, dismissStructureNotice])
 
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
@@ -181,15 +179,7 @@ export default function Sidebar() {
           </div>
         </Section>
 
-        <div className="sb-tools">
-          <button className="link-btn" type="button" onClick={onExport}>
-            导出 Export
-          </button>
-          <button className="link-btn" type="button" onClick={() => fileRef.current?.click()}>
-            导入 Import
-          </button>
-          <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onImportFile} />
-        </div>
+        <ProjectFiles />
 
         <a
           className="link-btn sb-feedback"

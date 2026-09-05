@@ -2,6 +2,7 @@ import type { RootState } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useStore } from '../state/store'
 import { homeAABB } from '../state/home'
+import { fitHomeCamera } from './cameraFit'
 
 /** Camera view presets the UI can request (consumed by CameraRig). */
 export type ViewPreset = 'iso-ne' | 'iso-nw' | 'iso-se' | 'iso-sw' | 'top' | 'reset'
@@ -89,7 +90,7 @@ export function setRootState(state: RootState): void {
 export function captureScreenshot(): string | null {
   if (!rootState) return null
   try {
-    return rootState.gl.domElement.toDataURL('image/png')
+    return rootState.get().gl.domElement.toDataURL('image/png')
   } catch {
     return null
   }
@@ -108,16 +109,18 @@ type ViewOffsetCamera = THREE.OrthographicCamera | THREE.PerspectiveCamera
  */
 export async function captureUnbiasedScreenshot(): Promise<string | null> {
   if (!rootState) return null
-  const cam = rootState.camera as ViewOffsetCamera
+  const cam = rootState.get().camera as ViewOffsetCamera
   if (!cam.setViewOffset) return captureScreenshot()
   const saved = cam.view ? { ...cam.view } : null
   if (!saved?.enabled) return captureScreenshot() // no bias active — read the buffer as-is
   cam.clearViewOffset()
-  await nextFrame()
-  await nextFrame()
-  const shot = captureScreenshot()
-  cam.setViewOffset(saved.fullWidth, saved.fullHeight, saved.offsetX, saved.offsetY, saved.width, saved.height)
-  return shot
+  try {
+    await nextFrame()
+    await nextFrame()
+    return captureScreenshot()
+  } finally {
+    cam.setViewOffset(saved.fullWidth, saved.fullHeight, saved.offsetX, saved.offsetY, saved.width, saved.height)
+  }
 }
 
 /**
@@ -131,94 +134,60 @@ export async function captureUnbiasedScreenshot(): Promise<string | null> {
  */
 export async function captureFittedScreenshot(targetRatio?: number): Promise<string | null> {
   if (!rootState) return null
-  const { camera, size } = rootState
-  const controls = rootState.controls as {
-    target: THREE.Vector3
-    enabled: boolean
-  } | null
-
+  // Canvas onCreated is a snapshot; projection switches replace the live camera.
+  const { camera, size, controls: liveControls } = rootState.get()
+  const controls = liveControls as { target: THREE.Vector3; enabled: boolean } | null
+  const cam = camera as ViewOffsetCamera
   const st = useStore.getState()
-  const aabb = homeAABB(st.home)
-  const w = aabb.w
-  const d = aabb.d
-  const wh = st.wallHeight
-
+  const bounds = homeAABB(st.home)
+  const target = new THREE.Vector3(bounds.cx, 0.8, bounds.cz)
+  const savedTarget = controls?.target.clone()
+  const orbitTarget = savedTarget ?? target
+  const direction = new THREE.Spherical().setFromVector3(cam.position.clone().sub(orbitTarget))
   const canvasRatio = size.width / size.height
   const ratio = targetRatio && targetRatio > 0 ? targetRatio : canvasRatio
-  // effective viewport area once the frame is cropped to the output ratio
-  let effW = size.width
-  let effH = size.height
-  if (canvasRatio > ratio) effW = size.height * ratio
-  else effH = size.width / ratio
-
-  const target = controls ? controls.target.clone() : new THREE.Vector3(0, 0.8, 0)
-
-  // room AABB corners (walls + slab overhang) in view space
-  const ox = w / 2 + 0.45
-  const oz = d / 2 + 0.45
-  const invQ = camera.quaternion.clone().invert()
-  let maxX = 0
-  let maxY = 0
-  const v = new THREE.Vector3()
-  for (const x of [-ox, ox]) {
-    for (const y of [-0.2, wh]) {
-      for (const z of [-oz, oz]) {
-        v.set(x, y, z).sub(target).applyQuaternion(invQ)
-        maxX = Math.max(maxX, Math.abs(v.x))
-        maxY = Math.max(maxY, Math.abs(v.y))
-      }
-    }
+  const viewport = {
+    width: Math.min(size.width, size.height * ratio),
+    height: Math.min(size.height, size.width / ratio),
   }
-  const extX = maxX * 2
-  const extY = maxY * 2
-
-  // save the exact camera pose
-  const savedPos = camera.position.clone()
-  const savedQuat = camera.quaternion.clone()
-  const savedZoom = camera.zoom
-  const savedView = camera.view ? { ...camera.view } : null
+  const isOrtho = cam instanceof THREE.OrthographicCamera
+  // Cropping the canvas reduces the visible vertical field of view as well.
+  const fov = isOrtho ? 40 : THREE.MathUtils.radToDeg(2 * Math.atan(
+    Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * viewport.height / size.height,
+  ))
+  const fit = fitHomeCamera(bounds, st.wallHeight, viewport, direction.theta, direction.phi, fov, 0)
+  const savedPos = cam.position.clone()
+  const savedQuat = cam.quaternion.clone()
+  const savedZoom = cam.zoom
+  const savedView = cam.view ? { ...cam.view } : null
   const wasEnabled = controls?.enabled ?? false
 
-  const isOrtho = (camera as THREE.OrthographicCamera).isOrthographicCamera === true
-  if (isOrtho) {
-    camera.zoom = Math.min(effW / extX, effH / extY) * 0.92
-  } else {
-    const persp = camera as THREE.PerspectiveCamera
-    const vfov = THREE.MathUtils.degToRad(persp.fov)
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * (effW / effH))
-    const distY = extY / 2 / Math.tan(vfov / 2)
-    const distX = extX / 2 / Math.tan(hfov / 2)
-    const dir = camera.position.clone().sub(target).normalize()
-    camera.position.copy(target).addScaledVector(dir, Math.max(distX, distY) * 1.15)
-    camera.lookAt(target)
+  try {
+    if (controls) {
+      controls.enabled = false
+      controls.target.copy(target)
+    }
+    cam.position.setFromSphericalCoords(isOrtho ? direction.radius : fit.distance, direction.phi, direction.theta).add(target)
+    cam.lookAt(target)
+    cam.zoom = isOrtho ? fit.zoom * (cam.top - cam.bottom) / size.height : 1
+    if (savedView?.enabled) cam.clearViewOffset()
+    cam.updateProjectionMatrix()
+    await nextFrame()
+    await nextFrame()
+    return captureScreenshot()
+  } finally {
+    cam.position.copy(savedPos)
+    cam.quaternion.copy(savedQuat)
+    cam.zoom = savedZoom
+    if (savedView?.enabled) {
+      cam.setViewOffset(savedView.fullWidth, savedView.fullHeight, savedView.offsetX, savedView.offsetY, savedView.width, savedView.height)
+    }
+    cam.updateProjectionMatrix()
+    if (controls && savedTarget) {
+      controls.target.copy(savedTarget)
+      controls.enabled = wasEnabled
+    }
   }
-  // drop the editor's framing bias while capturing: the image model centers
-  // the subject on its own, so a biased input guarantees a mismatched render
-  if (savedView?.enabled) (camera as ViewOffsetCamera).clearViewOffset()
-  camera.updateProjectionMatrix()
-  if (controls) controls.enabled = false
-
-  await nextFrame()
-  await nextFrame()
-  const shot = captureScreenshot()
-
-  camera.position.copy(savedPos)
-  camera.quaternion.copy(savedQuat)
-  camera.zoom = savedZoom
-  if (savedView?.enabled) {
-    ;(camera as ViewOffsetCamera).setViewOffset(
-      savedView.fullWidth,
-      savedView.fullHeight,
-      savedView.offsetX,
-      savedView.offsetY,
-      savedView.width,
-      savedView.height,
-    )
-  }
-  camera.updateProjectionMatrix()
-  if (controls) controls.enabled = wasEnabled
-  await nextFrame()
-  return shot
 }
 
 // ---------------------------------------------------------------------------

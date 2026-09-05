@@ -142,6 +142,10 @@ export default function FurnitureItem({
 
   const endDrag = (e: ThreeEvent<PointerEvent>) => {
     if (!drag.current) return
+    // Commit the last pointer target before the gesture's history entry closes.
+    if (drag.current.next) {
+      useStore.getState().moveFurniture(instance.id, drag.current.next.x, drag.current.next.z)
+    }
     drag.current = null
     captureOf(e).releasePointerCapture(e.pointerId)
     if (controls) controls.enabled = true
@@ -181,7 +185,7 @@ export default function FurnitureItem({
       />
     )
   } else if (def.kind === 'upload') {
-    content = <UploadModel modelId={def.id} footprint={def.footprint} selected={selected} />
+    content = <UploadModel key={def.id} modelId={def.id} footprint={def.footprint} selected={selected} />
   }
 
   return (
