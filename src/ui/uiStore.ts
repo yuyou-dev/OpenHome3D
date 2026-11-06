@@ -77,6 +77,7 @@ export const useUI = create<UIState>()((set, get) => ({
     set((s) => ({ sectionOpen: { ...s.sectionOpen, [title]: !(s.sectionOpen[title] ?? true) } })),
 
   pushToast: (text) => {
+    if (get().toasts.some(toast => toast.text === text)) return
     const id = ++toastId
     set((s) => ({ toasts: [...s.toasts, { id, text }] }))
     // auto-expire: fade out after 3s, remove after the exit animation

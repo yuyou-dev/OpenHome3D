@@ -12,6 +12,17 @@ try {
   await page.waitForFunction(() => !!window.__store && !!window.__three?.get().controls)
   await page.waitForSelector('.loading-veil', { hidden: true, timeout: 10000 })
   assert.equal(await page.$('vite-error-overlay'), null)
+  const duplicateNotices = await page.evaluate(async () => {
+    const { useUI } = await import('/src/ui/uiStore.ts')
+    useUI.setState({ toasts: [] })
+    for (let i = 0; i < 15; i++) useUI.getState().pushToast('Invalid furniture placement')
+    const repeated = useUI.getState().toasts.length
+    useUI.getState().pushToast('A different notice')
+    const distinct = useUI.getState().toasts.length
+    useUI.setState({ toasts: [] })
+    return { repeated, distinct }
+  })
+  assert.deepEqual(duplicateNotices, { repeated: 1, distinct: 2 }, 'identical active notices must not pile up during a drag')
   await page.waitForSelector('.topbar button')
 
   const clickText = async (text) => {
